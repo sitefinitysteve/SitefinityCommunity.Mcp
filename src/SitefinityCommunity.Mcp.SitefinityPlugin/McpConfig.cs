@@ -1,7 +1,7 @@
 // ============================================================================
 // SitefinityCommunity.Mcp - Sitefinity Plugin
 // Drop this file into your Sitefinity web app project.
-// Register in Global.asax: Config.RegisterSection<McpConfig>();
+// Register in Global.asax: McpInit.Register();
 // ============================================================================
 
 using System.Configuration;

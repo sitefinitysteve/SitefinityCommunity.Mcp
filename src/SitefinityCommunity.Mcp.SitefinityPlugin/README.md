@@ -4,21 +4,52 @@ Source files that add MCP REST endpoints to any Sitefinity CMS installation. The
 
 ## Installation
 
-### 1. Copy files into your Sitefinity project
+### 1. Install plugin files
 
-Copy all `.cs` files from this folder into your Sitefinity web app project (e.g., `SitefinityWebApp/`).
+**Option A — Automated** (recommended):
+
+From the repo root, run the install script pointing at your Sitefinity web app:
+
+```powershell
+.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
+```
+
+Use `-Force` to overwrite existing files when updating:
+
+```powershell
+.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp" -Force
+```
+
+**Option B — Manual**:
+
+Copy all `.cs` files from this folder into `Code\Mcp\SitefinityCommunity\` in your Sitefinity web app:
+
+```
+SitefinityWebApp/
+├── Code/
+│   └── Mcp/
+│       └── SitefinityCommunity/
+│           ├── McpInit.cs
+│           ├── McpConfig.cs
+│           ├── McpApiKeyAttribute.cs
+│           ├── McpServicePlugin.cs
+│           ├── McpLogService.cs
+│           └── McpLogRequest.cs
+├── Global.asax.cs
+└── ...
+```
+
+The `Code/Mcp/SitefinityCommunity/` path keeps MCP files isolated from your application code. The `SitefinityCommunity` subfolder makes it clear these are community files that can be updated by re-running the install script.
 
 ### 2. Register in Global.asax
 
-In your `Global.asax.cs`, inside the `Bootstrapper_Initialized` handler:
+In your `Global.asax.cs`, add a single line inside the `Bootstrapper_Initialized` handler:
 
 ```csharp
-// Register MCP config section (admin UI settings)
-Config.RegisterSection<SitefinityCommunity.Mcp.SitefinityPlugin.McpConfig>();
-
-// Register MCP ServiceStack endpoints
-SystemManager.RegisterServiceStackPlugin(new SitefinityCommunity.Mcp.SitefinityPlugin.McpServicePlugin());
+SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
 ```
+
+That's it — this registers the config section and all ServiceStack endpoints.
 
 ### 3. Configure API key in Sitefinity admin
 
@@ -48,4 +79,19 @@ All endpoints require `X-MCP-API-Key` header.
 
 ## Why source files instead of a NuGet DLL?
 
-Sitefinity bundles specific versions of ServiceStack and other assemblies that vary across versions (12.x, 13.x, 14.x, 15.x). A precompiled DLL would create assembly binding conflicts. Source files compile against whatever versions your Sitefinity installation already uses.
+Sitefinity is a closed-source CMS that **bundles its own pinned versions** of ServiceStack, Newtonsoft.Json, Telerik.Sitefinity.* assemblies, and dozens of other dependencies. These versions change across Sitefinity releases — ServiceStack 5.x in Sitefinity 13, ServiceStack 6.x in Sitefinity 14, etc.
+
+A precompiled NuGet DLL would need to reference **the exact same assembly versions** as the consumer's Sitefinity installation. This creates a nightmare:
+
+- **Binding redirect hell** — "Could not load file or assembly 'ServiceStack, Version=X.X.X'" at runtime
+- **Multi-targeting burden** — we'd need separate NuGet packages per Sitefinity major version
+- **Transitive dependency conflicts** — our DLL's dependency tree would fight with Sitefinity's
+
+**Source files sidestep all of this.** When you copy these `.cs` files into your Sitefinity web app, they compile against *whatever assemblies your project already references*. Whether you're on Sitefinity 12.x or 15.x, the code compiles against your exact ServiceStack version, your exact Telerik assemblies, your exact .NET Framework target.
+
+This is the same approach used by several Sitefinity community packages and is common in ecosystems where the host application tightly controls its dependency versions.
+
+**Bonus benefits:**
+- **Debuggable** — set breakpoints, step through the code
+- **Customizable** — tweak the source to fit your needs
+- **No assembly loading issues** — nothing to go wrong at deploy time

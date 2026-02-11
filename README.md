@@ -78,7 +78,7 @@ Once configured, these tools are available in Claude Code:
 **Two-component design:**
 
 1. **MCP Server** (this project) — .NET console app using the official [ModelContextProtocol SDK](https://www.nuget.org/packages/ModelContextProtocol). Communicates with Claude Code via stdio.
-2. **Sitefinity Plugin** (companion package) — ServiceStack plugin that installs into any Sitefinity site. Exposes REST endpoints at `/RestApi/mcp/*` for remote log access.
+2. **Sitefinity Plugin** (source files) — `.cs` files you drop into any Sitefinity web app. Registers ServiceStack endpoints at `/RestApi/mcp/*` for remote log access. Compiles against your existing assemblies — no DLL conflicts.
 
 ## Adding New Tools
 
@@ -101,13 +101,21 @@ public sealed class ContentTools(ISitefinityStatusService status)
 
 ## Companion Sitefinity Plugin
 
-For remote servers (staging, production), install the companion plugin:
+For remote servers (staging, production), install the companion plugin into your Sitefinity web app:
 
-```
-Install-Package SitefinityCommunity.Mcp.SitefinityPlugin
+```powershell
+.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
 ```
 
-See the [plugin README](src/SitefinityCommunity.Mcp.SitefinityPlugin/README.md) for setup instructions.
+This copies the plugin source files into `Code\Mcp\SitefinityCommunity\` in your project. Then add one line to `Global.asax.cs` in your `Bootstrapper_Initialized` handler:
+
+```csharp
+SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
+```
+
+Set your API key in **Sitefinity Admin → Settings → Advanced → McpSettings** and you're done.
+
+Source files compile against your existing Sitefinity assemblies — no DLL binding issues across Sitefinity versions. See the [plugin README](src/SitefinityCommunity.Mcp.SitefinityPlugin/README.md) for the full explanation.
 
 ## License
 

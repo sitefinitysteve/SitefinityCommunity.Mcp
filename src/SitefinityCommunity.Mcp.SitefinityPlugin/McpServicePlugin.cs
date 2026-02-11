@@ -1,9 +1,7 @@
 // ============================================================================
 // SitefinityCommunity.Mcp - Sitefinity Plugin
 // Drop this file into your Sitefinity web app project.
-//
-// Register in Global.asax Bootstrapper_Initialized:
-//   SystemManager.RegisterServiceStackPlugin(new McpServicePlugin());
+// Registered automatically via McpInit.Register();
 // ============================================================================
 
 using ServiceStack;
