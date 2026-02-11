@@ -51,29 +51,42 @@ if (-not (Test-Path $globalAsax)) {
 if (-not (Test-Path $destDir)) {
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     Write-Host "Created: $destDir" -ForegroundColor Green
+} else {
+    # Clean out old .cs files so renamed/removed files don't linger
+    $existing = Get-ChildItem -Path $destDir -Filter "*.cs" -ErrorAction SilentlyContinue
+    if ($existing.Count -gt 0) {
+        if (-not $Force) {
+            Write-Host "Existing plugin files found in $destDir" -ForegroundColor Yellow
+            $confirm = Read-Host "Remove old files and install fresh? (y/N)"
+            if ($confirm -ne 'y') {
+                Write-Host "Aborted." -ForegroundColor Yellow
+                exit 0
+            }
+        }
+
+        $removed = 0
+        foreach ($old in $existing) {
+            Remove-Item $old.FullName -Force
+            Write-Host "  REMOVED: $($old.Name)" -ForegroundColor DarkGray
+            $removed++
+        }
+        Write-Host "  Cleaned $removed old file(s)" -ForegroundColor DarkGray
+    }
 }
 
-# Copy .cs files
+# Copy fresh .cs files
 $files = Get-ChildItem -Path $sourceDir -Filter "*.cs"
 $copied = 0
-$skipped = 0
 
 foreach ($file in $files) {
     $destFile = Join-Path $destDir $file.Name
-
-    if ((Test-Path $destFile) -and -not $Force) {
-        Write-Host "  EXISTS: $($file.Name) (use -Force to overwrite)" -ForegroundColor Yellow
-        $skipped++
-        continue
-    }
-
     Copy-Item -Path $file.FullName -Destination $destFile -Force
     Write-Host "  COPIED: $($file.Name)" -ForegroundColor Green
     $copied++
 }
 
 Write-Host ""
-Write-Host "Done! $copied file(s) copied, $skipped skipped." -ForegroundColor Cyan
+Write-Host "Done! $copied file(s) installed." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Files installed to:" -ForegroundColor Cyan
 Write-Host "  $destDir" -ForegroundColor White
