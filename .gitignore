@@ -1,0 +1,35 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+## Visual Studio
+.vs/
+*.vspscc
+*.vssscc
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+## Config files with secrets
+sitefinity-mcp.json
+
+## OS
+Thumbs.db
+.DS_Store
+
+## IDE
+.idea/
+*.swp
+*~
