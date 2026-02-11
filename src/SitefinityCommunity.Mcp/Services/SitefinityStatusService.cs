@@ -44,6 +44,21 @@ public sealed class SitefinityStatusService : ISitefinityStatusService
 
             if (response.IsSuccessStatusCode)
             {
+                // Sitefinity redirects ALL requests to /sitefinity/status while bootstrapping.
+                // HttpClient auto-follows the redirect, so we see a 200 OK with the HTML loading page.
+                var finalUrl = response.RequestMessage?.RequestUri?.AbsolutePath ?? string.Empty;
+                if (finalUrl.Contains("/sitefinity/status", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SitefinityHealthResponse.Bootstrapping();
+                }
+
+                // If the response is HTML (not JSON), the site is likely still bootstrapping
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SitefinityHealthResponse.Bootstrapping();
+                }
+
                 var content = await response.Content.ReadAsStringAsync(ct);
                 return ParseStatusResponse(content);
             }
@@ -95,8 +110,9 @@ public sealed class SitefinityStatusService : ISitefinityStatusService
         }
         catch (JsonException)
         {
-            // If response isn't JSON, site is probably up but endpoint doesn't match expected format
-            return SitefinityHealthResponse.Ready();
+            // Non-JSON response from /RestApi/systemstatus means the endpoint isn't serving
+            // its expected JSON payload — most likely the site is still bootstrapping.
+            return SitefinityHealthResponse.Bootstrapping();
         }
     }
 }

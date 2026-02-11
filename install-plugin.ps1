@@ -1,7 +1,8 @@
 # ============================================================================
-# SitefinityCommunity.Mcp — Plugin Installer
+# SitefinityCommunity.Mcp - Plugin Installer
 #
-# Copies the Sitefinity plugin source files into your web app project.
+# Copies the Sitefinity plugin source files into your web app project
+# and registers them in your .csproj so Visual Studio compiles them.
 #
 # Usage:
 #   .\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
@@ -10,7 +11,9 @@
 # What it does:
 #   1. Creates Code\Mcp\SitefinityCommunity\ in your project
 #   2. Copies all plugin .cs files there
-#   3. Reminds you to add one line to Global.asax
+#   3. Adds Compile Include entries to your .csproj
+#   4. Removes stale entries for files that no longer exist
+#   5. Reminds you to add one line to Global.asax
 # ============================================================================
 
 param(
@@ -27,6 +30,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceDir = Join-Path $scriptDir "src\SitefinityCommunity.Mcp.SitefinityPlugin"
 $destDir = Join-Path $Target "Code\Mcp\SitefinityCommunity"
+$relativeDir = "Code\Mcp\SitefinityCommunity"
 
 # Validate source
 if (-not (Test-Path $sourceDir)) {
@@ -47,7 +51,20 @@ if (-not (Test-Path $globalAsax)) {
     }
 }
 
-# Create destination folder
+# Find the .csproj file
+$csprojFiles = Get-ChildItem -Path $Target -Filter "*.csproj"
+if ($csprojFiles.Count -eq 0) {
+    Write-Warning "No .csproj file found in '$Target'. Files will be copied but you'll need to include them in your project manually."
+    $csprojPath = $null
+} elseif ($csprojFiles.Count -gt 1) {
+    Write-Warning "Multiple .csproj files found. Using: $($csprojFiles[0].Name)"
+    $csprojPath = $csprojFiles[0].FullName
+} else {
+    $csprojPath = $csprojFiles[0].FullName
+}
+
+# -- Step 1: Clean + Copy files ----------------------------------------
+
 if (-not (Test-Path $destDir)) {
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     Write-Host "Created: $destDir" -ForegroundColor Green
@@ -86,13 +103,87 @@ foreach ($file in $files) {
 }
 
 Write-Host ""
-Write-Host "Done! $copied file(s) installed." -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Files installed to:" -ForegroundColor Cyan
+Write-Host "$copied file(s) installed to:" -ForegroundColor Cyan
 Write-Host "  $destDir" -ForegroundColor White
+
+# -- Step 2: Update .csproj ---------------------------------------------
+
+if ($csprojPath) {
+    Write-Host ""
+    Write-Host "Updating $($csprojFiles[0].Name)..." -ForegroundColor Cyan
+
+    [xml]$csproj = Get-Content $csprojPath -Raw
+
+    # Check if this is an SDK-style project (auto-includes .cs files)
+    $isSdkStyle = $csproj.Project.Sdk -ne $null
+    if ($isSdkStyle) {
+        Write-Host "  SDK-style project detected - .cs files are auto-included, no changes needed." -ForegroundColor Green
+    } else {
+        # Legacy .csproj - needs explicit Compile Include entries
+        $ns = $csproj.Project.NamespaceURI
+        $nsManager = New-Object System.Xml.XmlNamespaceManager($csproj.NameTable)
+        if ($ns) {
+            $nsManager.AddNamespace("ms", $ns)
+            $compileXPath = "//ms:Compile"
+        } else {
+            $compileXPath = "//Compile"
+        }
+
+        # Build list of what SHOULD be in the csproj
+        $expectedIncludes = $files | ForEach-Object { "$relativeDir\$($_.Name)" }
+
+        # Remove any existing MCP entries (clean slate for our folder)
+        $mcpPattern = [regex]::Escape($relativeDir)
+        $removedEntries = 0
+        $compileNodes = $csproj.SelectNodes($compileXPath, $nsManager)
+        foreach ($node in $compileNodes) {
+            $include = $node.GetAttribute("Include")
+            if ($include -match $mcpPattern) {
+                $parent = $node.ParentNode
+                $parent.RemoveChild($node) | Out-Null
+                Write-Host "  REMOVED from csproj: $include" -ForegroundColor DarkGray
+                $removedEntries++
+            }
+        }
+
+        # Find an existing ItemGroup with Compile elements, or create one
+        $compileItemGroup = $null
+        foreach ($ig in $csproj.Project.ItemGroup) {
+            if ($ig.Compile) {
+                $compileItemGroup = $ig
+                break
+            }
+        }
+
+        if (-not $compileItemGroup) {
+            $compileItemGroup = $csproj.CreateElement("ItemGroup", $ns)
+            $csproj.Project.AppendChild($compileItemGroup) | Out-Null
+        }
+
+        # Add fresh entries
+        $addedEntries = 0
+        foreach ($include in $expectedIncludes) {
+            $compileElement = $csproj.CreateElement("Compile", $ns)
+            $compileElement.SetAttribute("Include", $include)
+            $compileItemGroup.AppendChild($compileElement) | Out-Null
+            Write-Host "  ADDED to csproj: $include" -ForegroundColor Green
+            $addedEntries++
+        }
+
+        # Save with UTF-8 BOM (standard for VS .csproj files)
+        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+        $writer = New-Object System.IO.StreamWriter($csprojPath, $false, $utf8Bom)
+        $csproj.Save($writer)
+        $writer.Close()
+
+        Write-Host "  Updated $($csprojFiles[0].Name): $addedEntries entries added" -ForegroundColor Cyan
+    }
+}
+
+# -- Step 3: Check Global.asax registration -----------------------------
+
 Write-Host ""
 
-# Check if already registered in Global.asax
 $registered = $false
 if (Test-Path $globalAsax) {
     $globalContent = Get-Content $globalAsax -Raw
@@ -102,7 +193,7 @@ if (Test-Path $globalAsax) {
 }
 
 if ($registered) {
-    Write-Host "McpInit.Register() already found in Global.asax.cs — you're all set!" -ForegroundColor Green
+    Write-Host "McpInit.Register() already found in Global.asax.cs - you're all set!" -ForegroundColor Green
 } else {
     Write-Host "NEXT STEP: Add this line to Global.asax.cs in your Bootstrapper_Initialized handler:" -ForegroundColor Yellow
     Write-Host ""

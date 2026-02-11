@@ -14,15 +14,19 @@ From the repo root, run the install script pointing at your Sitefinity web app:
 .\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
 ```
 
-Use `-Force` to overwrite existing files when updating:
+This will:
+- Copy all `.cs` files into `Code\Mcp\SitefinityCommunity\`
+- Add `<Compile Include="...">` entries to your `.csproj` (legacy format only — SDK-style projects auto-include)
+- On update (`-Force`), clean out old files and refresh `.csproj` entries so renames/removals are handled
 
 ```powershell
+# Update to latest version (removes old files, refreshes csproj)
 .\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp" -Force
 ```
 
 **Option B — Manual**:
 
-Copy all `.cs` files from this folder into `Code\Mcp\SitefinityCommunity\` in your Sitefinity web app:
+Copy all `.cs` files from this folder into `Code\Mcp\SitefinityCommunity\` in your Sitefinity web app, then add each file to your `.csproj` under an `<ItemGroup>` with `<Compile Include="Code\Mcp\SitefinityCommunity\FileName.cs" />`:
 
 ```
 SitefinityWebApp/

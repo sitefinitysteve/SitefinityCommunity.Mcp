@@ -6,8 +6,8 @@
 //   SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
 // ============================================================================
 
-using Telerik.Sitefinity.Abstractions;
 using Telerik.Sitefinity.Configuration;
+using Telerik.Sitefinity.Services;
 
 namespace SitefinityCommunity.Mcp.SitefinityPlugin
 {
