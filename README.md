@@ -7,6 +7,9 @@ Inspired by [Laravel Boost](https://github.com/nicepkg/laravel-boost) — design
 ## Features
 
 - **Log Tools** — Read error/trace logs, search across all log files with regex, get the last error
+- **Site Info** — Sitefinity version, .NET version, project name, configured languages, multisite info
+- **Module Inspector** — List all installed modules with type, status, and startup type
+- **Content Model** — Browse Module Builder dynamic types and their field definitions
 - **Status Check** — Verify if Sitefinity is bootstrapped and ready
 - **Multi-Environment** — Switch between dev/staging/prod environments on the fly
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
@@ -101,6 +104,10 @@ Once configured, these tools are available in Claude Code:
 | `sitefinity_search_logs` | Regex search across all logs with context |
 | `sitefinity_get_last_error` | Most recent error with full details |
 | `sitefinity_check_status` | Check if Sitefinity is bootstrapped |
+| `sitefinity_get_site_info` | Sitefinity version, .NET version, project name, languages, multisite info |
+| `sitefinity_list_modules` | All installed modules with type, status, startup type |
+| `sitefinity_list_dynamic_types` | Module Builder types grouped by module with field counts |
+| `sitefinity_get_type_fields` | Field definitions for a specific dynamic type |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -110,6 +117,38 @@ Once configured, these tools are available in Claude Code:
 
 1. **MCP Server** (this project) — .NET console app using the official [ModelContextProtocol SDK](https://www.nuget.org/packages/ModelContextProtocol). Communicates with Claude Code via stdio.
 2. **Sitefinity Plugin** (source files) — `.cs` files you drop into any Sitefinity web app. Registers ServiceStack endpoints at `/RestApi/mcp/*` for remote log access. Compiles against your existing assemblies — no DLL conflicts.
+
+```
+┌─────────────┐    stdio     ┌──────────────────┐
+│ Claude Code  │◄───────────►│   MCP Server     │
+│ (MCP Client) │             │ (.NET console)   │
+└─────────────┘              └────────┬─────────┘
+                                      │
+                        ┌─────────────┼─────────────┐
+                        │             │             │
+                   Local logs    HTTP + API Key     │
+                   (if logsPath  (X-MCP-API-Key)    │
+                    is set)       │                  │
+                        │         ▼                  ▼
+                        │  ┌─────────────┐   ┌─────────────┐
+                        │  │ Sitefinity  │   │ Sitefinity  │
+                        │  │ (Dev)       │   │ (Staging)   │
+                        │  │ /RestApi/   │   │ /RestApi/   │
+                        │  │  mcp/*      │   │  mcp/*      │
+                        │  └─────────────┘   └─────────────┘
+                        │     Plugin ▲          Plugin ▲
+                        │     source │          source │
+                        ▼     files  │          files  │
+                  ┌──────────┐       │                 │
+                  │ Log files│  Sitefinity APIs:       │
+                  │ on disk  │  SystemManager,         │
+                  └──────────┘  ModuleBuilder,         │
+                                MultisiteManager       │
+                                AppSettings            │
+```
+
+**Local mode** (dev): MCP server reads log files directly from disk via `logsPath`.
+**Remote mode** (staging/prod): MCP server calls plugin REST endpoints at `/RestApi/mcp/*`, authenticated with `X-MCP-API-Key` header. The plugin queries Sitefinity's internal APIs and returns results as JSON.
 
 ## Adding New Tools
 

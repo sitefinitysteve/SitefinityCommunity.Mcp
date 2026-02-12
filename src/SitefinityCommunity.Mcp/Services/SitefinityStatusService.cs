@@ -83,6 +83,42 @@ public sealed class SitefinityStatusService : ISitefinityStatusService
         }
     }
 
+    public async Task<SitefinityHealthResponse> WaitForReadyAsync(
+        string? environmentName = null,
+        int maxWaitSeconds = 90,
+        int pollIntervalSeconds = 5,
+        CancellationToken ct = default)
+    {
+        var (envName, config) = this._resolver.Resolve(environmentName);
+        var status = await this.CheckStatusAsync(environmentName, ct);
+
+        if (status.IsReady || maxWaitSeconds <= 0)
+        {
+            return status;
+        }
+
+        this._logger.LogInformation(
+            "Sitefinity ({Environment}, {Url}) is not ready — waiting up to {MaxWait}s...",
+            envName, config.Url, maxWaitSeconds);
+
+        var totalWaited = 0;
+        while (!status.IsReady && totalWaited < maxWaitSeconds && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(pollIntervalSeconds), ct);
+            totalWaited += pollIntervalSeconds;
+            status = await this.CheckStatusAsync(environmentName, ct);
+
+            this._logger.LogInformation(
+                "Waiting for Sitefinity ({Environment}): {Status} ({Waited}s / {MaxWait}s)",
+                envName,
+                status.IsReady ? "Ready" : status.IsBootstrapping ? "Bootstrapping" : "Unreachable",
+                totalWaited,
+                maxWaitSeconds);
+        }
+
+        return status;
+    }
+
     private static SitefinityHealthResponse ParseStatusResponse(string content)
     {
         try

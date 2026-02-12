@@ -18,6 +18,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     {
         [ObjectInfo(Title = "API Key", Description = "API key for authenticating MCP server requests. Must match the sitefinityApiKey in your sitefinity-mcp.json config.")]
         [ConfigurationProperty("ApiKey", DefaultValue = "")]
+        [SecretData]
         public string ApiKey
         {
             get { return (string)this["ApiKey"]; }

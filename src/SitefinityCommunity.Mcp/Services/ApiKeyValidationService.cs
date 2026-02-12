@@ -19,7 +19,8 @@ public interface IApiKeyValidationService
 
 /// <summary>
 /// Validates that the MCP server's API key matches Sitefinity's configured key
-/// by calling the /RestApi/mcp/ping endpoint. Caches results for 5 minutes per environment.
+/// by calling the /RestApi/mcp/ping endpoint. Caches Valid/InvalidKey for 5 minutes
+/// and Unreachable for 15 seconds per environment.
 /// </summary>
 public sealed class ApiKeyValidationService : IApiKeyValidationService
 {
@@ -28,6 +29,7 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
     private readonly ILogger<ApiKeyValidationService> _logger;
     private readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, DateTime ExpiresAt)> _cache = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan UnreachableCacheDuration = TimeSpan.FromSeconds(15);
 
     public ApiKeyValidationService(
         IEnvironmentResolver resolver,
@@ -51,7 +53,8 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
 
         var result = await PingAsync(config, ct);
 
-        this._cache[name] = (result, DateTime.UtcNow.Add(CacheDuration));
+        var ttl = result == ApiKeyValidationResult.Unreachable ? UnreachableCacheDuration : CacheDuration;
+        this._cache[name] = (result, DateTime.UtcNow.Add(ttl));
 
         return result;
     }
@@ -65,10 +68,27 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.Add("X-MCP-API-Key", config.SitefinityApiKey);
 
-            var response = await client.GetAsync("/RestApi/mcp/ping", ct);
+            var response = await client.GetAsync("/RestApi/mcp/ping?format=json", ct);
 
             if (response.IsSuccessStatusCode)
             {
+                // Sitefinity redirects ALL requests to /sitefinity/status while bootstrapping.
+                // HttpClient auto-follows the redirect, so we see a 200 OK with the HTML loading page.
+                var finalUrl = response.RequestMessage?.RequestUri?.AbsolutePath ?? string.Empty;
+                if (finalUrl.Contains("/sitefinity/status", StringComparison.OrdinalIgnoreCase))
+                {
+                    this._logger.LogDebug("Ping redirected to bootstrapping page for {Url}", config.Url);
+                    return ApiKeyValidationResult.Unreachable;
+                }
+
+                // If the response is HTML (not JSON), the site is likely still bootstrapping
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+                {
+                    this._logger.LogDebug("Ping returned HTML instead of JSON for {Url} — site is likely bootstrapping", config.Url);
+                    return ApiKeyValidationResult.Unreachable;
+                }
+
                 this._logger.LogDebug("API key validated for {Url}", config.Url);
                 return ApiKeyValidationResult.Valid;
             }

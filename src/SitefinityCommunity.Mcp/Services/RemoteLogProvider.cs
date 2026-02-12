@@ -29,7 +29,7 @@ public sealed class RemoteLogProvider : ILogProvider
     public async Task<IReadOnlyList<LogFileInfo>> ListFilesAsync(CancellationToken ct = default)
     {
         var client = CreateClient();
-        var response = await client.GetAsync("/RestApi/mcp/logs", ct);
+        var response = await client.GetAsync("/RestApi/mcp/logs?format=json", ct);
         response.EnsureSuccessStatusCode();
 
         var files = await response.Content.ReadFromJsonAsync<List<LogFileInfo>>(ct)
@@ -42,7 +42,7 @@ public sealed class RemoteLogProvider : ILogProvider
     {
         var client = CreateClient();
         var encodedName = Uri.EscapeDataString(fileName);
-        var response = await client.GetAsync($"/RestApi/mcp/logs/{encodedName}", ct);
+        var response = await client.GetAsync($"/RestApi/mcp/logs/{encodedName}?format=json", ct);
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync(ct);
@@ -59,7 +59,7 @@ public sealed class RemoteLogProvider : ILogProvider
             CaseSensitive = caseSensitive
         };
 
-        var response = await client.PostAsJsonAsync("/RestApi/mcp/logs/search", request, ct);
+        var response = await client.PostAsJsonAsync("/RestApi/mcp/logs/search?format=json", request, ct);
         response.EnsureSuccessStatusCode();
 
         var results = await response.Content.ReadFromJsonAsync<List<LogSearchResult>>(ct)

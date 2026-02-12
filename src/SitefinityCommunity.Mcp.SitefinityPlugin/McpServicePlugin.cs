@@ -17,6 +17,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public void Register(IAppHost appHost)
         {
             appHost.RegisterService(typeof(McpLogService));
+            appHost.RegisterService(typeof(McpMetadataService));
         }
     }
 }

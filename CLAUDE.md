@@ -25,7 +25,11 @@ SitefinityCommunity.Mcp/
     │   │   ├── LogEntry.cs            ← Parsed log entry
     │   │   ├── LogFileInfo.cs         ← Log file metadata
     │   │   ├── LogSearchResult.cs     ← Search match result
-    │   │   └── SitefinityHealthResponse.cs
+    │   │   ├── SitefinityHealthResponse.cs
+    │   │   ├── SiteInfoResponse.cs    ← Site info + SiteEntry for multisite
+    │   │   ├── ModuleInfo.cs          ← Installed module metadata
+    │   │   ├── DynamicTypeInfo.cs     ← Module Builder type metadata
+    │   │   └── DynamicFieldInfo.cs    ← Dynamic type field definition
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -37,19 +41,24 @@ SitefinityCommunity.Mcp/
     │   │   ├── LogParsingService.cs       ← Parses Sitefinity's 40-dash-separated log format
     │   │   ├── ISitefinityStatusService.cs
     │   │   ├── SitefinityStatusService.cs ← Polls /RestApi/systemstatus
-    │   │   └── ApiKeyValidationService.cs ← Validates API keys via /RestApi/mcp/ping
+    │   │   ├── ApiKeyValidationService.cs ← Validates API keys via /RestApi/mcp/ping
+    │   │   ├── ISitefinityMetadataService.cs ← Interface for metadata operations
+    │   │   └── SitefinityMetadataService.cs  ← HTTP client for metadata endpoints
     │   └── Tools/                     ← MCP TOOLS (auto-discovered)
     │       ├── LogTools.cs            ← read_error_log, read_trace_log, list_log_files, etc.
     │       ├── EnvironmentTools.cs    ← list_environments, set_default_environment
-    │       └── SitefinityStatusTools.cs ← check_status
+    │       ├── SitefinityStatusTools.cs ← check_status
+    │       ├── SitefinityInfoTools.cs ← get_site_info, list_modules
+    │       └── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
         ├── McpInit.cs                 ← Registration (checks Enabled + ApiKey before registering)
         ├── McpConfig.cs               ← Sitefinity config section (Admin > Advanced > McpSettings)
         ├── McpApiKeyAttribute.cs      ← Request filter validating X-MCP-API-Key header
         ├── McpServicePlugin.cs        ← ServiceStack plugin registration
-        ├── McpLogRequest.cs           ← Request/response DTOs
-        ├── McpLogService.cs           ← ServiceStack service handlers
+        ├── McpLogRequest.cs           ← Request/response DTOs (logs + metadata)
+        ├── McpLogService.cs           ← ServiceStack service handlers (logs)
+        ├── McpMetadataService.cs      ← ServiceStack service handlers (site info, modules, types)
         └── README.md                  ← Plugin installation guide
 ```
 
@@ -159,10 +168,14 @@ The `LogProviderFactory` picks the right one based on config.
 ### Security: API Keys and Enabled Flag
 
 **API Key Validation:**
-The `ApiKeyValidationService` proactively validates that the MCP server's key matches Sitefinity's key by calling `GET /RestApi/mcp/ping`. Results are cached for 5 minutes per environment. The `CallToolFilter` in `Program.cs` runs this check before every tool call:
+The `ApiKeyValidationService` proactively validates that the MCP server's key matches Sitefinity's key by calling `GET /RestApi/mcp/ping`. `Valid` and `InvalidKey` results are cached for 5 minutes; `Unreachable` is cached for only 15 seconds (so the server retries quickly during cold starts). The ping also detects bootstrapping redirects — if Sitefinity redirects to `/sitefinity/status` or returns HTML instead of JSON, it's treated as `Unreachable` (not falsely `Valid`).
+
+The `CallToolFilter` in `Program.cs` runs this check before every tool call:
 - **Valid** — proceed normally
 - **InvalidKey** — return clear error message (no tools execute)
-- **Unreachable** — warn but allow (so local log reading works when Sitefinity is down)
+- **Unreachable** — behavior depends on the tool:
+  - **Local-only tools** (`sitefinity_list_environments`, `sitefinity_set_default_environment`) and `sitefinity_check_status` — proceed immediately without waiting
+  - **All other tools** — call `WaitForReadyAsync` (90s timeout), then re-validate the API key. If ready + valid, proceed. If ready + invalid key, return error. If still unreachable, warn and allow (so local log tools still work)
 
 **Enabled Flag (Sitefinity Admin > Advanced > McpSettings):**
 Two-layer enforcement ensures MCP endpoints can be fully disabled:
@@ -193,8 +206,9 @@ Sitefinity logs use a format where entries are separated by 40-dash lines (`----
 | `ILogProviderFactory` | `LogProviderFactory` | Create local/remote log provider per environment |
 | `ILogProvider` | `LocalLogProvider` / `RemoteLogProvider` | List, read, search log files |
 | `LogParsingService` | (concrete) | Parse Sitefinity log format into structured entries |
-| `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped |
+| `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped; `WaitForReadyAsync` polls until ready or timeout |
 | `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint |
+| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields |
 | `IHttpClientFactory` | (framework) | Create HTTP clients for remote calls |
 | `SitefinityMcpConfig` | (concrete) | Loaded config singleton |
 
@@ -209,6 +223,10 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/logs/{FileName}` | GET | Read a log file (optional `MaxLines` query param) |
 | `/mcp/logs/search` | POST | Search all logs with regex pattern |
 | `/mcp/logs/last-error` | GET | Most recent error log entry |
+| `/mcp/site-info` | GET | Sitefinity version, .NET version, project name, languages, multisite |
+| `/mcp/modules` | GET | All installed modules with type, status, startup type |
+| `/mcp/dynamic-types` | GET | All Module Builder types grouped by module |
+| `/mcp/dynamic-types/{TypeFullName}/fields` | GET | Fields for a specific dynamic type |
 
 ## Coding Conventions
 
