@@ -4,6 +4,14 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for **
 
 Inspired by [Laravel Boost](https://github.com/nicepkg/laravel-boost) — designed as an extensible framework where adding new tools requires only creating a new class file.
 
+## Why this exists
+
+Sitefinity developers deserve the same AI-assisted workflow that every other framework already has. Laravel has Boost, Rails has its own MCP servers, Next.js devs have first-class tooling — but Sitefinity? Nothing.
+
+The official Sitefinity team moves at their own pace, and the developer experience tooling we need keeps not showing up. So instead of waiting, this project builds it. Community-driven, open source, and designed by someone who ships Sitefinity code every day and knows what's actually painful.
+
+If you've ever wished Claude could just *read your Sitefinity logs*, or know what modules and content types you have installed, or check if your site is even running — that's exactly what this does.
+
 ## Features
 
 - **Log Tools** — Read error/trace logs, search across all log files with regex, get the last error
@@ -45,12 +53,19 @@ Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
 
 ### 2. Setting Up API Keys
 
-API keys must match on both sides. There are no auto-generated defaults — you choose the key.
+API keys must match on both sides. Use the built-in generator to create a cryptographically secure key:
 
-1. **Pick a key** — any string (e.g. `my-secret-mcp-key-2024`)
-2. **Set it in `sitefinity-mcp.json`** — as `sitefinityApiKey` for each environment
-3. **Set the same key in Sitefinity** — Admin > Settings > Advanced > McpSettings > API Key
-4. **Check "Enabled"** in McpSettings (it's `false` by default — you must opt in)
+```bash
+dotnet run --project src/SitefinityCommunity.Mcp -- generate-key
+```
+
+This prints a new 256-bit Base64 key and setup instructions. Then:
+
+1. **Set it in `sitefinity-mcp.json`** — as `sitefinityApiKey` for each environment
+2. **Set the same key in Sitefinity** — Admin > Settings > Advanced > McpSettings > API Key
+3. **Check "Enabled"** in McpSettings (it's `false` by default — you must opt in)
+
+The key is encrypted at rest in Sitefinity's config via `[SecretData]`.
 
 The MCP server validates keys by calling `GET /RestApi/mcp/ping` with the configured key. If the keys don't match, all tool calls return a clear error message instead of cryptic 401s.
 
@@ -66,6 +81,8 @@ The MCP server validates keys by calling `GET /RestApi/mcp/ping` with the config
 
 1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
 2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
+
+**Encryption at rest** — The API key in Sitefinity's config is marked with `[SecretData]`, so it's stored encrypted in `McpConfig.config`. Sitefinity decrypts it transparently when the property is read in code.
 
 **Blank key protection** — Blank, empty, and whitespace-only keys are rejected at every checkpoint:
 - MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
@@ -188,6 +205,10 @@ Configure in **Sitefinity Admin > Settings > Advanced > McpSettings**:
 - **Enabled** — `false` by default. Must be explicitly enabled. Uncheck to disable all MCP endpoints (requires app pool recycle; runtime requests are also blocked immediately)
 
 Source files compile against your existing Sitefinity assemblies — no DLL binding issues across Sitefinity versions. See the [plugin README](src/SitefinityCommunity.Mcp.SitefinityPlugin/README.md) for the full explanation.
+
+## Author
+
+Built by **Steve McNiven-Scott** ([@SitefinitySteve](https://www.sitefinitysteve.com) | [GitHub](https://github.com/sitefinitysteve)) — Sitefinity MVP and long-time community contributor. Building developer tools for the Sitefinity community.
 
 ## License
 
