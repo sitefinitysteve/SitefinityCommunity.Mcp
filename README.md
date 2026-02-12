@@ -125,6 +125,7 @@ Once configured, these tools are available in Claude Code:
 | `sitefinity_list_modules` | All installed modules with type, status, startup type |
 | `sitefinity_list_dynamic_types` | Module Builder types grouped by module with field counts |
 | `sitefinity_get_type_fields` | Field definitions for a specific dynamic type |
+| `sitefinity_list_routes` | CMS page routes, API routes, and URL evaluation warnings |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
