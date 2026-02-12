@@ -16,6 +16,19 @@ SitefinityCommunity.Mcp/
 ├── README.md                          ← User-facing docs
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
+├── tests/
+│   ├── test-config.example.json       ← Template (committed)
+│   ├── test-config.json               ← Your dev config (gitignored)
+│   └── SitefinityCommunity.Mcp.Tests/ ← xUnit test project
+│       ├── SitefinityFixture.cs       ← Shared fixture (loads config, builds DI)
+│       ├── Helpers/
+│       │   └── MockHttpMessageHandler.cs
+│       ├── Integration/               ← Tests requiring running Sitefinity
+│       │   ├── MetadataServiceTests.cs
+│       │   └── StatusServiceTests.cs
+│       └── Unit/                      ← Offline tests with mocked HTTP
+│           ├── MetadataServiceUnitTests.cs
+│           └── RouteToolsUnitTests.cs
 └── src/
     ├── SitefinityCommunity.Mcp/       ← THE MCP SERVER
     │   ├── Program.cs                 ← Entry point, DI, MCP server config, tool filter
@@ -29,7 +42,8 @@ SitefinityCommunity.Mcp/
     │   │   ├── SiteInfoResponse.cs    ← Site info + SiteEntry for multisite
     │   │   ├── ModuleInfo.cs          ← Installed module metadata
     │   │   ├── DynamicTypeInfo.cs     ← Module Builder type metadata
-    │   │   └── DynamicFieldInfo.cs    ← Dynamic type field definition
+    │   │   ├── DynamicFieldInfo.cs    ← Dynamic type field definition
+    │   │   └── RoutesResponse.cs    ← Page routes, API routes, OData routes
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -49,7 +63,8 @@ SitefinityCommunity.Mcp/
     │       ├── EnvironmentTools.cs    ← list_environments, set_default_environment
     │       ├── SitefinityStatusTools.cs ← check_status
     │       ├── SitefinityInfoTools.cs ← get_site_info, list_modules
-    │       └── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
+    │       ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
+    │       └── RouteTools.cs          ← list_page_routes, list_api_routes
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
         ├── McpInit.cs                 ← Registration (checks Enabled + ApiKey before registering)
@@ -227,6 +242,9 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/modules` | GET | All installed modules with type, status, startup type |
 | `/mcp/dynamic-types` | GET | All Module Builder types grouped by module |
 | `/mcp/dynamic-types/{TypeFullName}/fields` | GET | Fields for a specific dynamic type |
+| `/mcp/routes` | GET | Combined page + API routes (backward compat) |
+| `/mcp/page-routes` | GET | CMS page routes with URL evaluation warnings |
+| `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
 
 ## Coding Conventions
 
@@ -245,3 +263,34 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 2. Run the MCP server with the config file path
 3. Verify with Claude Code — tools like `sitefinity_list_environments` don't need Sitefinity running
 4. Log tools need either a local `logsPath` or a running Sitefinity with the plugin installed
+
+## Automated Tests
+
+The test project is at `tests/SitefinityCommunity.Mcp.Tests/`.
+
+### Setup
+
+1. Copy `tests/test-config.example.json` to `tests/test-config.json`
+2. Fill in your Sitefinity dev URL and API key (gitignored)
+
+### Running Tests
+
+```bash
+# All tests (unit + integration)
+dotnet test
+
+# Unit tests only (no Sitefinity needed)
+dotnet test --filter "Category=Unit"
+
+# Integration tests only (requires running Sitefinity)
+dotnet test --filter "Category=Integration"
+```
+
+### Test Categories
+
+- **Unit** (`Trait("Category", "Unit")`) — Mock HTTP responses, NSubstitute for service interfaces. Always pass offline.
+- **Integration** (`Trait("Category", "Integration")`) — Hit a real Sitefinity instance. Use `[SkippableFact]` + `Skip.If(!fixture.IsAvailable)` to skip when config is missing or Sitefinity is unreachable.
+
+### Shared Fixture
+
+`SitefinityFixture` (IAsyncLifetime, `[CollectionDefinition("Sitefinity")]`) loads `test-config.json`, builds a DI container, waits for Sitefinity readiness, and validates the API key — all once per test run.

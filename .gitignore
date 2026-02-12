@@ -24,6 +24,7 @@ x86/
 
 ## Config files with secrets
 sitefinity-mcp.json
+tests/test-config.json
 
 ## OS
 Thumbs.db

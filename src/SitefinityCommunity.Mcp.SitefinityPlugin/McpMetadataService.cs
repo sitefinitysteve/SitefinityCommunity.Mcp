@@ -8,12 +8,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Web.Script.Serialization;
 using Telerik.Sitefinity.Abstractions;
 using Telerik.Sitefinity.DynamicModules.Builder;
 using Telerik.Sitefinity.DynamicModules.Builder.Model;
 using Telerik.Sitefinity.Modules.Pages;
 using Telerik.Sitefinity.Pages.Model;
 using Telerik.Sitefinity.Services;
+using Telerik.Sitefinity.Web;
 
 namespace SitefinityCommunity.Mcp.SitefinityPlugin
 {
@@ -34,7 +36,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             var response = new McpSiteInfoResponse
             {
                 SitefinityVersion = sfAssembly.Version != null ? sfAssembly.Version.ToString() : "Unknown",
-                DotNetVersion = Environment.Version.ToString(),
+                DotNetVersion = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
                 ProjectName = SystemManager.CurrentContext.CurrentSite.Name,
                 ModuleCount = SystemManager.ApplicationModules.Count
             };
@@ -239,145 +241,400 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         }
 
         /// <summary>
-        /// GET /RestApi/mcp/routes — Page routes, API routes, and URL evaluation warnings.
+        /// GET /RestApi/mcp/page-routes — CMS page routes via cached SiteMap (elevated context).
         /// </summary>
-        public McpRoutesResponse Get(ListRoutes request)
+        public McpPageRoutesResponse Get(ListPageRoutes request)
         {
-            var response = new McpRoutesResponse();
+            var response = new McpPageRoutesResponse();
 
-            // ── Page Routes ──────────────────────────────────────────
             try
             {
-                var pageManager = PageManager.GetManager();
-                var backendRootId = SiteInitializer.BackendRootNodeId;
-
-                var pageNodes = pageManager.GetPageNodes()
-                    .Where(p => p.RootNodeId != backendRootId && !p.IsDeleted)
-                    .ToList();
-
-                foreach (var node in pageNodes)
-                {
-                    try
-                    {
-                        var url = node.GetFullUrl() ?? string.Empty;
-                        if (string.IsNullOrEmpty(url))
-                            url = "/" + (node.UrlName ?? string.Empty);
-
-                        if (!url.StartsWith("/"))
-                            url = "/" + url;
-
-                        var nodeType = node.NodeType.ToString();
-                        var isPublished = string.Equals(
-                            node.ApprovalWorkflowState, "Published",
-                            StringComparison.OrdinalIgnoreCase);
-
-                        // Calculate depth by walking parent chain
-                        var depth = 0;
-                        var parent = node.Parent;
-                        while (parent != null)
-                        {
-                            depth++;
-                            parent = parent.Parent;
-                        }
-
-                        var pageRoute = new McpPageRoute
-                        {
-                            Title = node.Title ?? node.Name ?? string.Empty,
-                            Url = url,
-                            NodeType = nodeType,
-                            IsPublished = isPublished,
-                            Depth = depth,
-                            HasUrlEvaluation = false,
-                            UrlEvaluationMode = string.Empty
-                        };
-
-                        // Check URL evaluation mode for Standard pages only
-                        if (node.NodeType == NodeType.Standard)
-                        {
-                            try
-                            {
-                                var pageData = node.GetPageData();
-                                if (pageData != null && pageData.Controls != null)
-                                {
-                                    foreach (PageControl control in pageData.Controls)
-                                    {
-                                        if (control.Properties == null)
-                                            continue;
-
-                                        foreach (ControlProperty prop in control.Properties)
-                                        {
-                                            if (prop.Name != null
-                                                && prop.Name.IndexOf("UrlEvaluationMode", StringComparison.OrdinalIgnoreCase) >= 0
-                                                && !string.IsNullOrEmpty(prop.Value)
-                                                && !string.Equals(prop.Value, "DoNotEvaluate", StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                pageRoute.HasUrlEvaluation = true;
-                                                pageRoute.UrlEvaluationMode = prop.Value;
-                                                break;
-                                            }
-                                        }
-
-                                        if (pageRoute.HasUrlEvaluation)
-                                            break;
-                                    }
-                                }
-                            }
-                            catch (Exception)
-                            {
-                                // Could not inspect page data — skip URL eval check
-                            }
-                        }
-
-                        response.PageRoutes.Add(pageRoute);
-                    }
-                    catch (Exception)
-                    {
-                        // Skip individual page errors
-                    }
-                }
-
-                response.PageRoutes = response.PageRoutes.OrderBy(p => p.Url).ToList();
+                response.PageRoutes = GetPageRoutes(out var warnings);
+                response.Warnings.AddRange(warnings);
             }
             catch (Exception ex)
             {
                 response.Warnings.Add("Error enumerating page routes: " + ex.Message);
             }
 
-            // ── API Routes ───────────────────────────────────────────
+            return response;
+        }
+
+        /// <summary>
+        /// GET /RestApi/mcp/api-routes — ServiceStack API routes and OData entity sets.
+        /// </summary>
+        public McpApiRoutesResponse Get(ListApiRoutes request)
+        {
+            var response = new McpApiRoutesResponse();
+
             try
             {
-                var appHost = HostContext.AppHost;
-                if (appHost != null && appHost.RestPaths != null)
-                {
-                    foreach (var restPath in appHost.RestPaths)
-                    {
-                        response.ApiRoutes.Add(new McpApiRoute
-                        {
-                            Path = restPath.Path ?? string.Empty,
-                            Verbs = restPath.AllowedVerbs ?? "ANY",
-                            RequestType = restPath.RequestType != null
-                                ? restPath.RequestType.Name
-                                : string.Empty
-                        });
-                    }
-
-                    response.ApiRoutes = response.ApiRoutes.OrderBy(r => r.Path).ToList();
-                }
+                response.ServiceStackRoutes = GetServiceStackRoutes(out var warnings);
+                response.Warnings.AddRange(warnings);
             }
             catch (Exception ex)
             {
-                response.Warnings.Add("Error enumerating API routes: " + ex.Message);
+                response.Warnings.Add("Error enumerating ServiceStack routes: " + ex.Message);
             }
 
-            // ── Warnings for URL evaluation ──────────────────────────
-            foreach (var page in response.PageRoutes.Where(p => p.HasUrlEvaluation))
+            // ── OData Entity Sets ────────────────────────────────────
+            try
             {
-                response.Warnings.Add(
-                    page.Url + " has UrlEvaluationMode=" + page.UrlEvaluationMode
-                    + " — verify this is intentional");
+                var baseUrl = new Uri(base.Request.AbsoluteUri).GetLeftPart(UriPartial.Authority);
+                var odataUrl = baseUrl + "/api/default";
+
+                using (var webClient = new System.Net.WebClient())
+                {
+                    var json = webClient.DownloadString(odataUrl);
+                    var serializer = new JavaScriptSerializer();
+                    var doc = serializer.Deserialize<Dictionary<string, object>>(json);
+
+                    if (doc != null && doc.ContainsKey("value"))
+                    {
+                        var items = doc["value"] as System.Collections.ArrayList;
+                        if (items != null)
+                        {
+                            foreach (var item in items)
+                            {
+                                var entry = item as Dictionary<string, object>;
+                                if (entry != null && entry.ContainsKey("name"))
+                                {
+                                    var name = entry["name"]?.ToString() ?? string.Empty;
+                                    response.ODataRoutes.Add(new McpODataRoute
+                                    {
+                                        EntitySetName = name,
+                                        EntitySetUrl = "/api/default/" + name
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                response.ODataRoutes = response.ODataRoutes.OrderBy(r => r.EntitySetName).ToList();
+            }
+            catch (Exception ex)
+            {
+                response.Warnings.Add("Could not discover OData entity sets: " + ex.Message);
             }
 
             return response;
+        }
+
+        /// <summary>
+        /// GET /RestApi/mcp/page-details — Detailed page info including widgets and properties.
+        /// </summary>
+        public McpPageDetailsResponse Get(GetPageDetails request)
+        {
+            if (string.IsNullOrWhiteSpace(request.PageIdentifier))
+                throw HttpError.BadRequest("PageIdentifier is required.");
+
+            var response = new McpPageDetailsResponse();
+
+            try
+            {
+                var pageManager = PageManager.GetManager();
+                pageManager.Provider.SuppressSecurityChecks = true;
+
+                try
+                {
+                    var node = ResolvePageNode(pageManager, request.PageIdentifier, response.Warnings);
+                    if (node == null)
+                        throw HttpError.NotFound("Page not found: " + request.PageIdentifier);
+
+                    response.Id = node.Id.ToString();
+                    response.Title = node.Title ?? node.Name ?? string.Empty;
+                    response.UrlName = node.UrlName ?? string.Empty;
+                    response.NodeType = node.NodeType.ToString();
+                    response.IsPublished = string.Equals(
+                        node.ApprovalWorkflowState, "Published",
+                        StringComparison.OrdinalIgnoreCase);
+
+                    // URL
+                    var url = node.GetFullUrl() ?? string.Empty;
+                    if (string.IsNullOrEmpty(url))
+                        url = "/" + (node.UrlName ?? string.Empty);
+                    if (url.StartsWith("~/"))
+                        url = url.Substring(1);
+                    if (!url.StartsWith("/"))
+                        url = "/" + url;
+                    response.Url = url;
+
+                    // Depth
+                    var depth = 0;
+                    var parent = node.Parent;
+                    while (parent != null)
+                    {
+                        depth++;
+                        parent = parent.Parent;
+                    }
+                    response.Depth = depth;
+
+                    // Page data (template, description, widgets)
+                    var pageData = node.GetPageData();
+                    if (pageData != null)
+                    {
+                        response.PageDataId = pageData.Id.ToString();
+
+                        if (pageData.Template != null)
+                            response.TemplateName = pageData.Template.Name ?? string.Empty;
+
+                        response.Description = pageData.Description ?? string.Empty;
+
+                        // Widgets
+                        if (pageData.Controls != null)
+                        {
+                            foreach (var control in pageData.Controls)
+                            {
+                                try
+                                {
+                                    var widget = new McpPageWidgetInfo
+                                    {
+                                        ObjectType = control.ObjectType ?? string.Empty,
+                                        PlaceHolder = control.PlaceHolder ?? string.Empty,
+                                        Caption = control.Caption ?? string.Empty,
+                                        IsLayoutControl = control.IsLayoutControl
+                                    };
+
+                                    // Derive friendly names
+                                    widget.WidgetName = ExtractWidgetName(widget.ObjectType);
+                                    widget.FriendlyName = widget.WidgetName;
+
+                                    // Extract all properties
+                                    if (control.Properties != null)
+                                    {
+                                        foreach (var prop in control.Properties)
+                                        {
+                                            var val = prop.Value ?? string.Empty;
+                                            if (val.Length > 500)
+                                                val = val.Substring(0, 500) + "... (truncated)";
+                                            widget.Properties[prop.Name] = val;
+                                        }
+
+                                        // For MVC widgets, extract controller name as friendly name
+                                        string controllerName;
+                                        if (widget.Properties.TryGetValue("ControllerName", out controllerName)
+                                            && !string.IsNullOrEmpty(controllerName))
+                                        {
+                                            widget.FriendlyName = controllerName;
+                                        }
+                                    }
+
+                                    response.Widgets.Add(widget);
+                                }
+                                catch (Exception)
+                                {
+                                    // Skip individual widget errors
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        response.Warnings.Add("No page data found (page may be a group node or redirect).");
+                    }
+
+                }
+                finally
+                {
+                    pageManager.Provider.SuppressSecurityChecks = false;
+                }
+            }
+            catch (HttpError)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HttpError(HttpStatusCode.InternalServerError, "Error reading page details: " + ex.Message);
+            }
+
+            return response;
+        }
+
+        // ── Private Helpers ──────────────────────────────────────────
+
+        /// <summary>
+        /// Resolves a page node from a flexible identifier: Guid, URL path, UrlName slug, or title.
+        /// </summary>
+        private PageNode ResolvePageNode(PageManager pageManager, string identifier, List<string> warnings)
+        {
+            // 1. Try as Guid
+            Guid pageGuid;
+            if (Guid.TryParse(identifier, out pageGuid))
+            {
+                try
+                {
+                    var node = pageManager.GetPageNode(pageGuid);
+                    if (node != null)
+                        return node;
+                }
+                catch (Exception) { /* not found by guid, continue */ }
+            }
+
+            // Load all frontend page nodes for searching
+            var backendRootId = SiteInitializer.BackendRootNodeId;
+            var allNodes = pageManager.GetPageNodes()
+                .Where(p => p.RootNodeId != backendRootId && !p.IsDeleted)
+                .ToList();
+
+            // 2. Try as URL path
+            var normalizedUrl = identifier.Trim().TrimEnd('/');
+            if (!normalizedUrl.StartsWith("/"))
+                normalizedUrl = "/" + normalizedUrl;
+
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    var nodeUrl = node.GetFullUrl() ?? string.Empty;
+                    if (nodeUrl.StartsWith("~/"))
+                        nodeUrl = nodeUrl.Substring(1);
+                    if (!nodeUrl.StartsWith("/"))
+                        nodeUrl = "/" + nodeUrl;
+                    nodeUrl = nodeUrl.TrimEnd('/');
+
+                    if (string.Equals(nodeUrl, normalizedUrl, StringComparison.OrdinalIgnoreCase))
+                        return node;
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            // 3. Try as UrlName slug
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    if (string.Equals(node.UrlName, identifier.Trim('/'), StringComparison.OrdinalIgnoreCase))
+                        return node;
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            // 4. Try as title (exact, then partial)
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    var title = node.Title ?? node.Name ?? string.Empty;
+                    if (string.Equals(title, identifier, StringComparison.OrdinalIgnoreCase))
+                        return node;
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    var title = node.Title ?? node.Name ?? string.Empty;
+                    if (title.IndexOf(identifier, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        warnings.Add("Partial title match: '" + title + "' matched identifier '" + identifier + "'");
+                        return node;
+                    }
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts a short widget name from a fully-qualified ObjectType string.
+        /// </summary>
+        private string ExtractWidgetName(string objectType)
+        {
+            if (string.IsNullOrEmpty(objectType))
+                return string.Empty;
+
+            // ObjectType is typically "Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy" or similar
+            var lastDot = objectType.LastIndexOf('.');
+            return lastDot >= 0 ? objectType.Substring(lastDot + 1) : objectType;
+        }
+
+        private List<McpPageRoute> GetPageRoutes(out List<string> warnings)
+        {
+            var pageRoutes = new List<McpPageRoute>();
+            var warningsList = new List<string>();
+
+            // Elevate to admin context — MCP API key requests have no Sitefinity user session,
+            // so the SiteMap security trimming would hide all nodes without elevation.
+            SystemManager.RunWithElevatedPrivilege(d =>
+            {
+                var provider = SiteMapBase.GetSiteMapProvider("FrontendSiteMap");
+                var root = provider.RootNode;
+                if (root == null)
+                {
+                    warningsList.Add("FrontendSiteMap root node is null.");
+                    return;
+                }
+
+                CollectSiteMapNodes(root, pageRoutes, 0);
+            });
+
+            pageRoutes = pageRoutes.OrderBy(p => p.Url).ToList();
+            warnings = warningsList;
+            return pageRoutes;
+        }
+
+        private void CollectSiteMapNodes(System.Web.SiteMapNode node, List<McpPageRoute> routes, int depth)
+        {
+            foreach (System.Web.SiteMapNode child in node.ChildNodes)
+            {
+                try
+                {
+                    var url = child.Url ?? string.Empty;
+                    if (url.StartsWith("~/"))
+                        url = url.Substring(1);
+                    if (!url.StartsWith("/"))
+                        url = "/" + url;
+
+                    routes.Add(new McpPageRoute
+                    {
+                        Title = child.Title ?? string.Empty,
+                        Url = url,
+                        NodeType = "Standard",
+                        IsPublished = true,
+                        Depth = depth,
+                        HasUrlEvaluation = false,
+                        UrlEvaluationMode = string.Empty
+                    });
+
+                    CollectSiteMapNodes(child, routes, depth + 1);
+                }
+                catch (Exception) { /* skip individual node errors */ }
+            }
+        }
+
+        private List<McpApiRoute> GetServiceStackRoutes(out List<string> warnings)
+        {
+            var apiRoutes = new List<McpApiRoute>();
+            warnings = new List<string>();
+
+            var appHost = HostContext.AppHost;
+            if (appHost != null && appHost.RestPaths != null)
+            {
+                foreach (var restPath in appHost.RestPaths)
+                {
+                    var apiPath = restPath.Path ?? string.Empty;
+                    if (!apiPath.StartsWith("/RestApi", StringComparison.OrdinalIgnoreCase))
+                        apiPath = "/RestApi" + apiPath;
+
+                    apiRoutes.Add(new McpApiRoute
+                    {
+                        Path = apiPath,
+                        Verbs = restPath.AllowedVerbs ?? "ANY",
+                        RequestType = restPath.RequestType != null
+                            ? restPath.RequestType.Name
+                            : string.Empty
+                    });
+                }
+
+                apiRoutes = apiRoutes.OrderBy(r => r.Path).ToList();
+            }
+
+            return apiRoutes;
         }
     }
 }

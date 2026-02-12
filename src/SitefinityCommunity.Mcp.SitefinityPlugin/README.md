@@ -38,7 +38,8 @@ SitefinityWebApp/
 │           ├── McpApiKeyAttribute.cs
 │           ├── McpServicePlugin.cs
 │           ├── McpLogService.cs
-│           └── McpLogRequest.cs
+│           ├── McpLogRequest.cs
+│           └── McpMetadataService.cs
 ├── Global.asax.cs
 └── ...
 ```
@@ -79,6 +80,14 @@ Should return a JSON array of log files.
 | `/mcp/logs/{FileName}` | GET | Read a log file |
 | `/mcp/logs/search` | POST | Search logs with regex |
 | `/mcp/logs/last-error` | GET | Most recent error entry |
+| `/mcp/site-info` | GET | Sitefinity version, .NET version, project name, languages, multisite |
+| `/mcp/modules` | GET | All installed modules with type, status, startup type |
+| `/mcp/dynamic-types` | GET | Module Builder types grouped by module |
+| `/mcp/dynamic-types/{TypeFullName}/fields` | GET | Field definitions for a specific dynamic type |
+| `/mcp/routes` | GET | Combined page + API routes (backward compat) |
+| `/mcp/page-routes` | GET | CMS page routes via Sitemap API (cached, fast). Includes URL evaluation warnings |
+| `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
+| `/mcp/page-details?PageIdentifier={id}` | GET | Full page detail: metadata, template, all widgets with configured properties. Accepts Guid, URL path, slug, or title |
 
 All endpoints require `X-MCP-API-Key` header.
 

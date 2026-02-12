@@ -1,0 +1,9 @@
+{
+    "defaultEnvironment": "dev",
+    "environments": {
+        "dev": {
+            "url": "https://your-sitefinity-site.com",
+            "sitefinityApiKey": "paste-your-api-key-here"
+        }
+    }
+}

@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SitefinityCommunity.Mcp/SitefinityCommunity.Mcp.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SitefinityCommunity.Mcp.Tests/SitefinityCommunity.Mcp.Tests.csproj" />
+  </Folder>
 </Solution>

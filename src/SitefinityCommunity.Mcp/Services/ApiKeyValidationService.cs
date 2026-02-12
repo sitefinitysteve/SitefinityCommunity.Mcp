@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using SitefinityCommunity.Mcp.Configuration;
+using SitefinityCommunity.Mcp.Extensions;
 
 namespace SitefinityCommunity.Mcp.Services;
 
@@ -15,6 +16,13 @@ public enum ApiKeyValidationResult
 public interface IApiKeyValidationService
 {
     Task<ApiKeyValidationResult> ValidateAsync(string? environmentName = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the cached validation result for the given environment (or default).
+    /// Call this when a data request fails with HTML, indicating Sitefinity restarted
+    /// and the previously cached "Valid" result is stale.
+    /// </summary>
+    void InvalidateCache(string? environmentName = null);
 }
 
 /// <summary>
@@ -59,6 +67,12 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
         return result;
     }
 
+    public void InvalidateCache(string? environmentName = null)
+    {
+        var (name, _) = this._resolver.Resolve(environmentName);
+        this._cache.TryRemove(name, out _);
+    }
+
     private async Task<ApiKeyValidationResult> PingAsync(EnvironmentConfig config, CancellationToken ct)
     {
         try
@@ -72,20 +86,11 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
 
             if (response.IsSuccessStatusCode)
             {
-                // Sitefinity redirects ALL requests to /sitefinity/status while bootstrapping.
-                // HttpClient auto-follows the redirect, so we see a 200 OK with the HTML loading page.
-                var finalUrl = response.RequestMessage?.RequestUri?.AbsolutePath ?? string.Empty;
-                if (finalUrl.Contains("/sitefinity/status", StringComparison.OrdinalIgnoreCase))
+                if (response.IsSitefinityBootstrapping())
                 {
-                    this._logger.LogDebug("Ping redirected to bootstrapping page for {Url}", config.Url);
-                    return ApiKeyValidationResult.Unreachable;
-                }
-
-                // If the response is HTML (not JSON), the site is likely still bootstrapping
-                var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
-                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-                {
-                    this._logger.LogDebug("Ping returned HTML instead of JSON for {Url} — site is likely bootstrapping", config.Url);
+                    this._logger.LogDebug(
+                        "Ping returned HTML or redirected to bootstrap page for {Url} — site is still starting",
+                        config.Url);
                     return ApiKeyValidationResult.Unreachable;
                 }
 

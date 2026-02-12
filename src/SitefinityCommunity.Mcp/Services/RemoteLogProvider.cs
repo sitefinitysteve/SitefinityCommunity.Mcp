@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SitefinityCommunity.Mcp.Configuration;
+using SitefinityCommunity.Mcp.Extensions;
 using SitefinityCommunity.Mcp.Models;
 
 namespace SitefinityCommunity.Mcp.Services;
@@ -31,6 +32,7 @@ public sealed class RemoteLogProvider : ILogProvider
         var client = CreateClient();
         var response = await client.GetAsync("/RestApi/mcp/logs?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         var files = await response.Content.ReadFromJsonAsync<List<LogFileInfo>>(ct)
             ?? new List<LogFileInfo>();
@@ -44,6 +46,7 @@ public sealed class RemoteLogProvider : ILogProvider
         var encodedName = Uri.EscapeDataString(fileName);
         var response = await client.GetAsync($"/RestApi/mcp/logs/{encodedName}?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         return await response.Content.ReadAsStringAsync(ct);
     }
@@ -61,6 +64,7 @@ public sealed class RemoteLogProvider : ILogProvider
 
         var response = await client.PostAsJsonAsync("/RestApi/mcp/logs/search?format=json", request, ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         var results = await response.Content.ReadFromJsonAsync<List<LogSearchResult>>(ct)
             ?? new List<LogSearchResult>();

@@ -18,6 +18,8 @@ If you've ever wished Claude could just *read your Sitefinity logs*, or know wha
 - **Site Info** — Sitefinity version, .NET version, project name, configured languages, multisite info
 - **Module Inspector** — List all installed modules with type, status, and startup type
 - **Content Model** — Browse Module Builder dynamic types and their field definitions
+- **Page Inspector** — List all CMS page routes (via Sitemap API for performance), get full page details including template name, all widgets, and their configured properties
+- **Route Discovery** — Browse CMS page routes with URL evaluation warnings, ServiceStack API routes, and OData entity sets
 - **Status Check** — Verify if Sitefinity is bootstrapped and ready
 - **Multi-Environment** — Switch between dev/staging/prod environments on the fly
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
@@ -126,9 +128,25 @@ Once configured, these tools are available in Claude Code:
 | `sitefinity_list_modules` | All installed modules with type, status, startup type |
 | `sitefinity_list_dynamic_types` | Module Builder types grouped by module with field counts |
 | `sitefinity_get_type_fields` | Field definitions for a specific dynamic type |
-| `sitefinity_list_routes` | CMS page routes, API routes, and URL evaluation warnings |
+| `sitefinity_list_page_routes` | All CMS page routes via Sitemap API (fast, cached). Includes URL evaluation warnings for pages with dynamic routing |
+| `sitefinity_list_api_routes` | ServiceStack REST API routes and OData entity sets |
+| `sitefinity_get_page_details` | Full page detail by ID, URL path, slug, or title. Returns page metadata, template name, and every widget on the page with its configured properties |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
+
+### Page Inspector
+
+The page tools give your AI assistant visibility into Sitefinity's CMS page structure — something that's otherwise locked inside the database and only visible through the Sitefinity backend UI.
+
+**`sitefinity_list_page_routes`** — Uses Sitefinity's **Sitemap API** (`FrontendSiteMap` provider) for performance. The sitemap is an in-memory cached representation of the page tree, so listing hundreds of pages is fast without hitting `PageManager` queries. Returns each page's URL, title, depth in the tree, and flags pages that use dynamic URL evaluation (which can cause routing surprises).
+
+**`sitefinity_get_page_details`** — Returns everything about a single page: metadata (ID, title, URL, template name, published status) and **every widget placed on the page** with their configured properties. Each widget includes its CLR type, placeholder location, caption, whether it's a layout control, and a flat dictionary of all its property values. Accepts flexible lookup by:
+- **Page ID** (Guid) — `fefefa59-f39a-4ac9-bf2f-a54d005f135d`
+- **URL path** — `/ug/home`
+- **URL slug** — `home`
+- **Page title** — `UGME Home` (exact match preferred, partial match with warning)
+
+This is particularly useful for understanding page composition — seeing which widgets are on a page, what layout grid they're in, and what properties are configured — without needing to open the Sitefinity backend.
 
 ## Architecture
 
@@ -187,6 +205,29 @@ public sealed class ContentTools(ISitefinityStatusService status)
     }
 }
 ```
+
+## Testing
+
+### Setup
+
+1. Copy `tests/test-config.example.json` to `tests/test-config.json`
+2. Fill in your Sitefinity dev URL and API key (this file is gitignored)
+
+### Running Tests
+
+```bash
+# All tests (unit + integration)
+dotnet test
+
+# Unit tests only (no Sitefinity needed)
+dotnet test --filter "Category=Unit"
+
+# Integration tests only (requires running Sitefinity)
+dotnet test --filter "Category=Integration"
+```
+
+Integration tests skip automatically if `test-config.json` is missing or
+Sitefinity is unreachable — they won't fail your build.
 
 ## Companion Sitefinity Plugin
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using SitefinityCommunity.Mcp.Extensions;
 using SitefinityCommunity.Mcp.Models;
 
 namespace SitefinityCommunity.Mcp.Services;
@@ -7,6 +8,9 @@ namespace SitefinityCommunity.Mcp.Services;
 /// <summary>
 /// Polls /RestApi/systemstatus to determine Sitefinity's bootstrap state.
 /// Handles: 200 (bootstrapped), 503 (restarting), timeout, and unreachable states.
+/// After systemstatus reports "Bootstrapped", verifies the MCP plugin is loaded
+/// by pinging /RestApi/mcp/ping — this prevents false "Ready" when ServiceStack
+/// plugins haven't initialized yet.
 /// </summary>
 public sealed class SitefinityStatusService : ISitefinityStatusService
 {
@@ -46,21 +50,30 @@ public sealed class SitefinityStatusService : ISitefinityStatusService
             {
                 // Sitefinity redirects ALL requests to /sitefinity/status while bootstrapping.
                 // HttpClient auto-follows the redirect, so we see a 200 OK with the HTML loading page.
-                var finalUrl = response.RequestMessage?.RequestUri?.AbsolutePath ?? string.Empty;
-                if (finalUrl.Contains("/sitefinity/status", StringComparison.OrdinalIgnoreCase))
-                {
-                    return SitefinityHealthResponse.Bootstrapping();
-                }
-
-                // If the response is HTML (not JSON), the site is likely still bootstrapping
-                var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
-                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+                if (response.IsSitefinityBootstrapping())
                 {
                     return SitefinityHealthResponse.Bootstrapping();
                 }
 
                 var content = await response.Content.ReadAsStringAsync(ct);
-                return ParseStatusResponse(content);
+                var systemStatus = ParseStatusResponse(content);
+
+                // systemstatus says "Bootstrapped" but ServiceStack plugins may not be loaded yet.
+                // Verify by pinging the MCP plugin endpoint directly.
+                if (systemStatus.IsReady)
+                {
+                    var mcpReady = await VerifyMcpPluginAsync(config, ct);
+                    if (!mcpReady)
+                    {
+                        return new SitefinityHealthResponse
+                        {
+                            IsBootstrapping = true,
+                            Summary = "Sitefinity core is bootstrapped but MCP plugin endpoints are not yet available. Please wait."
+                        };
+                    }
+                }
+
+                return systemStatus;
             }
 
             // 404 can mean the endpoint doesn't exist but Sitefinity is running
@@ -117,6 +130,49 @@ public sealed class SitefinityStatusService : ISitefinityStatusService
         }
 
         return status;
+    }
+
+    /// <summary>
+    /// Verifies that the MCP plugin is loaded and serving requests.
+    /// After Sitefinity's systemstatus reports "Bootstrapped", ServiceStack plugins
+    /// may still be initializing. A quick GET to /RestApi/mcp/ping confirms readiness.
+    /// </summary>
+    private async Task<bool> VerifyMcpPluginAsync(Configuration.EnvironmentConfig config, CancellationToken ct)
+    {
+        try
+        {
+            var client = this._httpClientFactory.CreateClient("McpPing");
+            client.BaseAddress = new Uri(config.Url.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(5);
+
+            if (!string.IsNullOrEmpty(config.SitefinityApiKey))
+            {
+                client.DefaultRequestHeaders.Add("X-MCP-API-Key", config.SitefinityApiKey);
+            }
+
+            var response = await client.GetAsync("/RestApi/mcp/ping?format=json", ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                this._logger.LogDebug(
+                    "MCP ping returned {StatusCode} — plugin not yet loaded",
+                    (int)response.StatusCode);
+                return false;
+            }
+
+            if (response.IsSitefinityBootstrapping())
+            {
+                this._logger.LogDebug("MCP ping returned HTML — site still bootstrapping");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or HttpRequestException)
+        {
+            this._logger.LogDebug(ex, "MCP ping failed — plugin not yet available");
+            return false;
+        }
     }
 
     private static SitefinityHealthResponse ParseStatusResponse(string content)

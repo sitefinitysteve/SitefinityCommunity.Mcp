@@ -11,5 +11,7 @@ public interface ISitefinityMetadataService
     Task<IReadOnlyList<ModuleInfo>> ListModulesAsync(string? environment = null, CancellationToken ct = default);
     Task<IReadOnlyList<DynamicTypeInfo>> ListDynamicTypesAsync(string? environment = null, CancellationToken ct = default);
     Task<IReadOnlyList<DynamicFieldInfo>> GetTypeFieldsAsync(string typeFullName, string? environment = null, CancellationToken ct = default);
-    Task<RoutesResponse> ListRoutesAsync(string? environment = null, CancellationToken ct = default);
+    Task<PageRoutesResponse> ListPageRoutesAsync(string? environment = null, CancellationToken ct = default);
+    Task<ApiRoutesResponse> ListApiRoutesAsync(string? environment = null, CancellationToken ct = default);
+    Task<PageDetailsResponse> GetPageDetailsAsync(string pageIdentifier, string? environment = null, CancellationToken ct = default);
 }

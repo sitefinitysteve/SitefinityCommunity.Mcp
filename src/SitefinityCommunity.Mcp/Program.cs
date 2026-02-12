@@ -7,6 +7,7 @@ using System.Reflection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using SitefinityCommunity.Mcp.Configuration;
+using SitefinityCommunity.Mcp.Extensions;
 using SitefinityCommunity.Mcp.Services;
 
 // CLI: generate-key command — print a new API key and setup instructions, then exit
@@ -101,6 +102,26 @@ builder.Services
             targetEnvironment = envEl.GetString();
         }
 
+        // Wraps next() to catch SitefinityBootstrappingException — thrown when a service
+        // receives HTML instead of JSON because Sitefinity restarted after API key was validated.
+        // Invalidates the stale "Valid" cache entry and returns a friendly message.
+        async Task<CallToolResult> InvokeWithBootstrapGuard()
+        {
+            try
+            {
+                return await next(context, cancellationToken);
+            }
+            catch (SitefinityBootstrappingException ex)
+            {
+                validator.InvalidateCache(targetEnvironment);
+                return new CallToolResult
+                {
+                    Content = [new TextContentBlock { Text = ex.Message }],
+                    IsError = true
+                };
+            }
+        }
+
         var result = await validator.ValidateAsync(targetEnvironment, cancellationToken);
 
         if (result == ApiKeyValidationResult.InvalidKey)
@@ -131,7 +152,7 @@ builder.Services
 
             if (localOnlyTools.Contains(toolName))
             {
-                return await next(context, cancellationToken);
+                return await InvokeWithBootstrapGuard();
             }
 
             // Wait for Sitefinity to become ready before proceeding
@@ -159,11 +180,11 @@ builder.Services
                 }
 
                 // Ready + Valid — proceed normally, no warning needed
-                return await next(context, cancellationToken);
+                return await InvokeWithBootstrapGuard();
             }
 
             // Still unreachable after waiting — warn but allow (so local log tools still work)
-            var innerResult = await next(context, cancellationToken);
+            var innerResult = await InvokeWithBootstrapGuard();
             var warning = new TextContentBlock
             {
                 Text = "[Warning] Sitefinity did not become ready after waiting 90 seconds. " +
@@ -175,7 +196,7 @@ builder.Services
             return innerResult;
         }
 
-        return await next(context, cancellationToken);
+        return await InvokeWithBootstrapGuard();
     });
 
 await builder.Build().RunAsync();

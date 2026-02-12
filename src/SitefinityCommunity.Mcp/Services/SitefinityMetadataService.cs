@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using SitefinityCommunity.Mcp.Configuration;
+using SitefinityCommunity.Mcp.Extensions;
 using SitefinityCommunity.Mcp.Models;
 
 namespace SitefinityCommunity.Mcp.Services;
@@ -25,6 +26,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/site-info?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         return await response.Content.ReadFromJsonAsync<SiteInfoResponse>(ct)
             ?? new SiteInfoResponse();
@@ -35,6 +37,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/modules?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         return await response.Content.ReadFromJsonAsync<List<ModuleInfo>>(ct)
             ?? [];
@@ -45,6 +48,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/dynamic-types?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         return await response.Content.ReadFromJsonAsync<List<DynamicTypeInfo>>(ct)
             ?? [];
@@ -57,19 +61,45 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encodedName = Uri.EscapeDataString(typeFullName);
         var response = await client.GetAsync($"/RestApi/mcp/dynamic-types/{encodedName}/fields?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
         return await response.Content.ReadFromJsonAsync<List<DynamicFieldInfo>>(ct)
             ?? [];
     }
 
-    public async Task<RoutesResponse> ListRoutesAsync(string? environment = null, CancellationToken ct = default)
+    public async Task<PageRoutesResponse> ListPageRoutesAsync(string? environment = null, CancellationToken ct = default)
     {
         var client = CreateClient(environment);
-        var response = await client.GetAsync("/RestApi/mcp/routes?format=json", ct);
+        var response = await client.GetAsync("/RestApi/mcp/page-routes?format=json", ct);
         response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
 
-        return await response.Content.ReadFromJsonAsync<RoutesResponse>(ct)
-            ?? new RoutesResponse();
+        return await response.Content.ReadFromJsonAsync<PageRoutesResponse>(ct)
+            ?? new PageRoutesResponse();
+    }
+
+    public async Task<ApiRoutesResponse> ListApiRoutesAsync(string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var response = await client.GetAsync("/RestApi/mcp/api-routes?format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<ApiRoutesResponse>(ct)
+            ?? new ApiRoutesResponse();
+    }
+
+    public async Task<PageDetailsResponse> GetPageDetailsAsync(
+        string pageIdentifier, string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var encoded = Uri.EscapeDataString(pageIdentifier);
+        var response = await client.GetAsync($"/RestApi/mcp/page-details?PageIdentifier={encoded}&format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<PageDetailsResponse>(ct)
+            ?? new PageDetailsResponse();
     }
 
     private HttpClient CreateClient(string? environment)

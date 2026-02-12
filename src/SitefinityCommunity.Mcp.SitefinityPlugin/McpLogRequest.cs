@@ -88,9 +88,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string TypeFullName { get; set; }
     }
 
-    [Route("/mcp/routes", "GET")]
-    public class ListRoutes : IReturn<McpRoutesResponse>
+    [Route("/mcp/page-routes", "GET")]
+    public class ListPageRoutes : IReturn<McpPageRoutesResponse>
     {
+    }
+
+    [Route("/mcp/api-routes", "GET")]
+    public class ListApiRoutes : IReturn<McpApiRoutesResponse>
+    {
+    }
+
+    [Route("/mcp/page-details", "GET")]
+    public class GetPageDetails : IReturn<McpPageDetailsResponse>
+    {
+        public string PageIdentifier { get; set; }
     }
 
     // ── Metadata Response DTOs ───────────────────────────────────────
@@ -141,13 +152,6 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
     // ── Route Response DTOs ────────────────────────────────────────
 
-    public class McpRoutesResponse
-    {
-        public List<McpPageRoute> PageRoutes { get; set; } = new List<McpPageRoute>();
-        public List<McpApiRoute> ApiRoutes { get; set; } = new List<McpApiRoute>();
-        public List<string> Warnings { get; set; } = new List<string>();
-    }
-
     public class McpPageRoute
     {
         public string Title { get; set; }
@@ -164,5 +168,55 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Path { get; set; }
         public string Verbs { get; set; }
         public string RequestType { get; set; }
+    }
+
+    // ── Split Route Response DTOs ─────────────────────────────────
+
+    public class McpPageRoutesResponse
+    {
+        public List<McpPageRoute> PageRoutes { get; set; } = new List<McpPageRoute>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpApiRoutesResponse
+    {
+        public List<McpApiRoute> ServiceStackRoutes { get; set; } = new List<McpApiRoute>();
+        public List<McpODataRoute> ODataRoutes { get; set; } = new List<McpODataRoute>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpODataRoute
+    {
+        public string EntitySetName { get; set; }
+        public string EntitySetUrl { get; set; }
+    }
+
+    // ── Page Details Response DTOs ─────────────────────────────────
+
+    public class McpPageDetailsResponse
+    {
+        public string Id { get; set; }
+        public string PageDataId { get; set; }
+        public string Title { get; set; }
+        public string Url { get; set; }
+        public string UrlName { get; set; }
+        public string NodeType { get; set; }
+        public bool IsPublished { get; set; }
+        public string TemplateName { get; set; }
+        public string Description { get; set; }
+        public int Depth { get; set; }
+        public List<McpPageWidgetInfo> Widgets { get; set; } = new List<McpPageWidgetInfo>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpPageWidgetInfo
+    {
+        public string ObjectType { get; set; }
+        public string WidgetName { get; set; }
+        public string FriendlyName { get; set; }
+        public string PlaceHolder { get; set; }
+        public string Caption { get; set; }
+        public bool IsLayoutControl { get; set; }
+        public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
     }
 }
