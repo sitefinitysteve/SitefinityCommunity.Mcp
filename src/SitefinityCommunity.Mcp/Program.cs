@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using SitefinityCommunity.Mcp.Configuration;
@@ -71,7 +72,9 @@ builder.Services
         server.ServerInfo = new Implementation
         {
             Name = "sitefinity-mcp",
-            Version = "1.0.0"
+            Version = typeof(Program).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion ?? "0.0.0"
         };
         server.ServerInstructions =
             "Sitefinity CMS MCP server. Provides access to Sitefinity logs, diagnostics, status, and instance metadata. " +
