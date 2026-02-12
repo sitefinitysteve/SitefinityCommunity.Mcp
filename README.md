@@ -110,6 +110,7 @@ Add to your project's `.mcp.json`:
 
 ### 4. Use the tools
 
+<a id="available-tools"></a>
 Once configured, these tools are available in Claude Code:
 
 | Tool | Description |
