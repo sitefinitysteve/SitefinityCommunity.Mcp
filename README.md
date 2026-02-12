@@ -11,6 +11,7 @@ Inspired by [Laravel Boost](https://github.com/nicepkg/laravel-boost) — design
 - **Multi-Environment** — Switch between dev/staging/prod environments on the fly
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
 - **Auto-Discovery** — New tools are picked up automatically via `[McpServerToolType]` attribute
+- **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin
 
 ## Quick Start
 
@@ -20,16 +21,16 @@ Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
 
 ```json
 {
-    "apiKey": "your-mcp-api-key",
     "defaultEnvironment": "dev",
     "environments": {
         "dev": {
             "url": "https://dev.example.com",
-            "logsPath": "C:\\Path\\To\\Sitefinity\\App_Data\\Sitefinity\\Logs"
+            "logsPath": "C:\\Path\\To\\Sitefinity\\App_Data\\Sitefinity\\Logs",
+            "sitefinityApiKey": "your-dev-api-key"
         },
         "staging": {
             "url": "https://staging.example.com",
-            "sitefinityApiKey": "staging-plugin-key"
+            "sitefinityApiKey": "your-staging-api-key"
         }
     }
 }
@@ -37,8 +38,38 @@ Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
 
 - `logsPath` set = local log reading (same machine as Sitefinity)
 - `logsPath` empty = remote log reading via companion plugin HTTP endpoints
+- `sitefinityApiKey` is **required** for every environment
 
-### 2. Configure Claude Code
+### 2. Setting Up API Keys
+
+API keys must match on both sides. There are no auto-generated defaults — you choose the key.
+
+1. **Pick a key** — any string (e.g. `my-secret-mcp-key-2024`)
+2. **Set it in `sitefinity-mcp.json`** — as `sitefinityApiKey` for each environment
+3. **Set the same key in Sitefinity** — Admin > Settings > Advanced > McpSettings > API Key
+4. **Check "Enabled"** in McpSettings (it's `false` by default — you must opt in)
+
+The MCP server validates keys by calling `GET /RestApi/mcp/ping` with the configured key. If the keys don't match, all tool calls return a clear error message instead of cryptic 401s.
+
+**Key validation behavior:**
+- **Keys match** — tools work normally
+- **Keys don't match** — tools return: "API key mismatch..." error
+- **Sitefinity unreachable** — tools proceed with a warning (so you can still read local logs when debugging a down server)
+- **Blank keys** — rejected on both sides (MCP server won't start; Sitefinity won't register endpoints)
+
+### Security Model
+
+**Enabled flag** — The `Enabled` checkbox in Sitefinity Admin > Advanced > McpSettings acts as a kill switch with two enforcement layers:
+
+1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
+2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
+
+**Blank key protection** — Blank, empty, and whitespace-only keys are rejected at every checkpoint:
+- MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
+- Sitefinity startup (`McpInit.Register`) — plugin won't register endpoints
+- Sitefinity request filter (`McpApiKeyAttribute`) — requests blocked at runtime
+
+### 3. Configure Claude Code
 
 Add to your project's `.mcp.json`:
 
@@ -57,7 +88,7 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-### 3. Use the tools
+### 4. Use the tools
 
 Once configured, these tools are available in Claude Code:
 
@@ -113,7 +144,9 @@ This copies the plugin source files into `Code\Mcp\SitefinityCommunity\` in your
 SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
 ```
 
-Set your API key in **Sitefinity Admin → Settings → Advanced → McpSettings** and you're done.
+Configure in **Sitefinity Admin > Settings > Advanced > McpSettings**:
+- **API Key** — must match `sitefinityApiKey` in your `sitefinity-mcp.json`
+- **Enabled** — `false` by default. Must be explicitly enabled. Uncheck to disable all MCP endpoints (requires app pool recycle; runtime requests are also blocked immediately)
 
 Source files compile against your existing Sitefinity assemblies — no DLL binding issues across Sitefinity versions. See the [plugin README](src/SitefinityCommunity.Mcp.SitefinityPlugin/README.md) for the full explanation.
 

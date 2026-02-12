@@ -36,7 +36,18 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     {
     }
 
+    [Route("/mcp/ping", "GET")]
+    public class PingMcp : IReturn<McpPingResponse>
+    {
+    }
+
     // ── Response DTOs ─────────────────────────────────────────────────
+
+    public class McpPingResponse
+    {
+        public string Status { get; set; }
+    }
+
 
     public class McpLogFileInfo
     {

@@ -8,9 +8,6 @@ namespace SitefinityCommunity.Mcp.Configuration;
 /// </summary>
 public sealed class SitefinityMcpConfig
 {
-    [JsonPropertyName("apiKey")]
-    public string ApiKey { get; set; } = string.Empty;
-
     [JsonPropertyName("defaultEnvironment")]
     public string DefaultEnvironment { get; set; } = string.Empty;
 
@@ -48,11 +45,6 @@ public sealed class SitefinityMcpConfig
 
     private void Validate()
     {
-        if (string.IsNullOrWhiteSpace(this.ApiKey))
-        {
-            throw new InvalidOperationException("Config error: 'apiKey' is required in sitefinity-mcp.json.");
-        }
-
         if (this.Environments.Count == 0)
         {
             throw new InvalidOperationException("Config error: at least one environment must be configured.");
@@ -76,6 +68,13 @@ public sealed class SitefinityMcpConfig
             {
                 throw new InvalidOperationException($"Config error: environment '{name}' must have a 'url'.");
             }
+
+            if (string.IsNullOrWhiteSpace(env.SitefinityApiKey))
+            {
+                throw new InvalidOperationException(
+                    $"Config error: environment '{name}' must have a 'sitefinityApiKey'. " +
+                    "Set the same key in Sitefinity Admin > Settings > Advanced > McpSettings.");
+            }
         }
     }
 }
@@ -96,10 +95,11 @@ public sealed class EnvironmentConfig
     public string? LogsPath { get; set; }
 
     /// <summary>
-    /// API key for authenticating with the Sitefinity companion plugin (remote mode).
+    /// API key for authenticating with the Sitefinity companion plugin.
+    /// Must match the API key configured in Sitefinity Admin > Settings > Advanced > McpSettings.
     /// </summary>
     [JsonPropertyName("sitefinityApiKey")]
-    public string? SitefinityApiKey { get; set; }
+    public string SitefinityApiKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Whether this environment uses local filesystem log access.

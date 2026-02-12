@@ -24,8 +24,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             set { this["ApiKey"] = value; }
         }
 
-        [ObjectInfo(Title = "Enabled", Description = "Enable or disable MCP endpoints. When disabled, all /RestApi/mcp/* endpoints return 404.")]
-        [ConfigurationProperty("Enabled", DefaultValue = true)]
+        [ObjectInfo(Title = "Enabled", Description = "Enable or disable MCP endpoints. When disabled, all /RestApi/mcp/* routes are not registered. Requires app pool recycle to take effect, but the runtime filter also blocks requests immediately.")]
+        [ConfigurationProperty("Enabled", DefaultValue = false)]
         public bool Enabled
         {
             get { return (bool)this["Enabled"]; }

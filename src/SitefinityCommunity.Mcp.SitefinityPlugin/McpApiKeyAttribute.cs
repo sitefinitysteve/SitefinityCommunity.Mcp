@@ -25,14 +25,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 throw new UnauthorizedAccessException("MCP endpoints are disabled.");
             }
 
-            if (string.IsNullOrEmpty(config.ApiKey))
+            if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
                 throw new InvalidOperationException("MCP API key not configured in Sitefinity settings.");
             }
 
             var apiKey = req.Headers["X-MCP-API-Key"];
 
-            if (string.IsNullOrEmpty(apiKey) || apiKey != config.ApiKey)
+            if (string.IsNullOrWhiteSpace(apiKey) || apiKey != config.ApiKey)
             {
                 throw new UnauthorizedAccessException("Invalid or missing MCP API key.");
             }

@@ -19,7 +19,15 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     {
         public static void Register()
         {
+            // Always register config section so admin UI is available to re-enable
             Config.RegisterSection<McpConfig>();
+
+            var config = Config.Get<McpConfig>();
+            if (!config.Enabled || string.IsNullOrWhiteSpace(config.ApiKey))
+            {
+                return;
+            }
+
             SystemManager.RegisterServiceStackPlugin(new McpServicePlugin());
         }
     }

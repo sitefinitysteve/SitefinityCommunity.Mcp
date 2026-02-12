@@ -74,6 +74,7 @@ Should return a JSON array of log files.
 
 | Route | Method | Description |
 |-------|--------|-------------|
+| `/mcp/ping` | GET | Lightweight key validation (returns `{ status: "ok" }`) |
 | `/mcp/logs` | GET | List all log files |
 | `/mcp/logs/{FileName}` | GET | Read a log file |
 | `/mcp/logs/search` | POST | Search logs with regex |

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,7 @@ builder.Services.AddSingleton<IEnvironmentResolver>(sp =>
 builder.Services.AddSingleton<ILogProviderFactory, LogProviderFactory>();
 builder.Services.AddSingleton<LogParsingService>();
 builder.Services.AddSingleton<ISitefinityStatusService, SitefinityStatusService>();
+builder.Services.AddSingleton<IApiKeyValidationService, ApiKeyValidationService>();
 
 // HTTP client factory for remote providers and status checks
 builder.Services.AddHttpClient();
@@ -50,17 +52,50 @@ builder.Services
     // API key validation filter — runs before every tool call
     .AddCallToolFilter(next => async (context, cancellationToken) =>
     {
-        var opts = context.Services!.GetRequiredService<SitefinityMcpConfig>();
+        var validator = context.Services!.GetRequiredService<IApiKeyValidationService>();
 
-        // The API key is validated at startup via config load, but we also check
-        // it's present per-call as a defense-in-depth measure
-        if (string.IsNullOrEmpty(opts.ApiKey))
+        // Extract the target environment from tool arguments (most tools accept an optional 'environment' param)
+        // Arguments are deserialized as JsonElement from the MCP protocol JSON
+        string? targetEnvironment = null;
+        if (context.Params.Arguments?.TryGetValue("environment", out var envObj) == true
+            && envObj is JsonElement envEl
+            && envEl.ValueKind == JsonValueKind.String)
+        {
+            targetEnvironment = envEl.GetString();
+        }
+
+        var result = await validator.ValidateAsync(targetEnvironment, cancellationToken);
+
+        if (result == ApiKeyValidationResult.InvalidKey)
         {
             return new CallToolResult
             {
-                Content = [new TextContentBlock { Text = "MCP server error: API key not configured." }],
+                Content = [new TextContentBlock
+                {
+                    Text = "API key mismatch. The sitefinityApiKey in your sitefinity-mcp.json " +
+                           "does not match the API Key configured in Sitefinity. " +
+                           "Update the key in Sitefinity Admin > Settings > Advanced > McpSettings " +
+                           "to match your config file, or vice versa."
+                }],
                 IsError = true
             };
+        }
+
+        // Unreachable — warn but allow (Sitefinity may be down, and you may be reading local logs to debug why)
+        if (result == ApiKeyValidationResult.Unreachable)
+        {
+            var innerResult = await next(context, cancellationToken);
+
+            // Prepend a warning to the tool's output
+            var warning = new TextContentBlock
+            {
+                Text = "[Warning] Could not validate API key — Sitefinity is unreachable. " +
+                       "Key validation will be retried on the next call.\n\n"
+            };
+            var combined = new List<ContentBlock> { warning };
+            combined.AddRange(innerResult.Content);
+            innerResult.Content = combined;
+            return innerResult;
         }
 
         return await next(context, cancellationToken);

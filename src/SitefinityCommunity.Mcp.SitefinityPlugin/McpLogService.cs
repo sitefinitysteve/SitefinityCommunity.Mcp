@@ -112,6 +112,15 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         }
 
         /// <summary>
+        /// GET /RestApi/mcp/ping — Lightweight key validation endpoint.
+        /// Returns { status: "ok" } if the API key is valid.
+        /// </summary>
+        public McpPingResponse Get(PingMcp request)
+        {
+            return new McpPingResponse { Status = "ok" };
+        }
+
+        /// <summary>
         /// GET /RestApi/mcp/logs/last-error — Most recent error entry.
         /// </summary>
         public string Get(GetLastError request)
