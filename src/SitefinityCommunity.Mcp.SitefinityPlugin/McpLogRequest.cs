@@ -228,6 +228,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     public class GetWidgetProperties : IReturn<McpWidgetPropertiesResponse>
     {
         public string WidgetId { get; set; }
+        public string PageIdentifier { get; set; }
     }
 
     public class McpWidgetPropertiesResponse

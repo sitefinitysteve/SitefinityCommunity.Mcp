@@ -249,7 +249,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/page-routes` | GET | CMS page routes with URL evaluation warnings |
 | `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
 | `/mcp/page-details` | GET | Full page details with widgets and properties (Level 1 + Level 2 Settings) |
-| `/mcp/widgets/{WidgetId}/properties` | GET | Full widget properties with both Level 1 and Level 2 Settings children |
+| `/mcp/widgets/{WidgetId}/properties` | GET | Full widget properties with both Level 1 and Level 2 Settings children (requires `PageIdentifier` query param) |
 
 ## Coding Conventions
 

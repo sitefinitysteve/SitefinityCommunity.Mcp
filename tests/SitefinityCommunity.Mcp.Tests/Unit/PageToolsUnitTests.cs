@@ -115,7 +115,7 @@ public sealed class PageToolsUnitTests
     public async Task GetWidgetProperties_ReturnsJsonWithBothPropertyLevels()
     {
         var (tools, mock) = CreateTools();
-        mock.GetWidgetPropertiesAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        mock.GetWidgetPropertiesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new WidgetPropertiesResponse
             {
                 WidgetId = "11111111-2222-3333-4444-555555555555",
@@ -136,7 +136,7 @@ public sealed class PageToolsUnitTests
                 }
             });
 
-        var result = await tools.GetWidgetProperties("11111111-2222-3333-4444-555555555555");
+        var result = await tools.GetWidgetProperties("11111111-2222-3333-4444-555555555555", "/test-page");
 
         Assert.Contains("ContentBlock", result);
         Assert.Contains("SharedContentID", result);
@@ -150,10 +150,10 @@ public sealed class PageToolsUnitTests
     public async Task GetWidgetProperties_HandlesNotFound()
     {
         var (tools, mock) = CreateTools();
-        mock.GetWidgetPropertiesAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        mock.GetWidgetPropertiesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
-        var result = await tools.GetWidgetProperties("00000000-0000-0000-0000-000000000000");
+        var result = await tools.GetWidgetProperties("00000000-0000-0000-0000-000000000000", "/test-page");
 
         Assert.Contains("Error:", result);
         Assert.Contains("Ensure the Sitefinity plugin is installed", result);

@@ -48,13 +48,15 @@ public sealed class PageTools
     public async Task<string> GetWidgetProperties(
         [Description("The widget GUID (from sitefinity_get_page_details results)")]
         string widgetId,
+        [Description("Page identifier (Guid, URL path, slug, or title) — the page the widget is on")]
+        string pageIdentifier,
         [Description("Target environment name (uses default if omitted)")]
         string? environment = null,
         CancellationToken ct = default)
     {
         try
         {
-            var widget = await this._metadataService.GetWidgetPropertiesAsync(widgetId, environment, ct);
+            var widget = await this._metadataService.GetWidgetPropertiesAsync(widgetId, pageIdentifier, environment, ct);
             return JsonSerializer.Serialize(widget, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (HttpRequestException ex)

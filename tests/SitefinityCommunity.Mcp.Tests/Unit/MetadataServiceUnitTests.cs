@@ -204,7 +204,7 @@ public sealed class MetadataServiceUnitTests
         });
 
         var service = CreateService(json);
-        var result = await service.GetWidgetPropertiesAsync("11111111-2222-3333-4444-555555555555");
+        var result = await service.GetWidgetPropertiesAsync("11111111-2222-3333-4444-555555555555", "/test-page");
 
         Assert.Equal("11111111-2222-3333-4444-555555555555", result.WidgetId);
         Assert.Equal("Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy", result.ObjectType);

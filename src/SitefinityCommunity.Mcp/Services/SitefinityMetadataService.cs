@@ -103,11 +103,12 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     }
 
     public async Task<WidgetPropertiesResponse> GetWidgetPropertiesAsync(
-        string widgetId, string? environment = null, CancellationToken ct = default)
+        string widgetId, string pageIdentifier, string? environment = null, CancellationToken ct = default)
     {
         var client = CreateClient(environment);
-        var encoded = Uri.EscapeDataString(widgetId);
-        var response = await client.GetAsync($"/RestApi/mcp/widgets/{encoded}/properties?format=json", ct);
+        var encodedWidget = Uri.EscapeDataString(widgetId);
+        var encodedPage = Uri.EscapeDataString(pageIdentifier);
+        var response = await client.GetAsync($"/RestApi/mcp/widgets/{encodedWidget}/properties?PageIdentifier={encodedPage}&format=json", ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 

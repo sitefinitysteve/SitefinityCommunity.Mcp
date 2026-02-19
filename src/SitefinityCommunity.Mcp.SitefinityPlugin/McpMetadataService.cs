@@ -458,11 +458,15 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
         /// <summary>
         /// GET /RestApi/mcp/widgets/{WidgetId}/properties — Full widget details with both property levels.
+        /// Requires PageIdentifier query param to locate the widget via the proven pageData.Controls path.
         /// </summary>
         public McpWidgetPropertiesResponse Get(GetWidgetProperties request)
         {
             if (string.IsNullOrWhiteSpace(request.WidgetId))
                 throw HttpError.BadRequest("WidgetId is required.");
+
+            if (string.IsNullOrWhiteSpace(request.PageIdentifier))
+                throw HttpError.BadRequest("PageIdentifier is required. Use sitefinity_get_page_details first to find the page.");
 
             Guid widgetGuid;
             if (!Guid.TryParse(request.WidgetId, out widgetGuid))
@@ -477,9 +481,19 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                 try
                 {
-                    var control = pageManager.GetControl<ObjectData>(widgetGuid);
+                    // Resolve the page using the same proven path as GetPageDetails
+                    var node = ResolvePageNode(pageManager, request.PageIdentifier, response.Warnings);
+                    if (node == null)
+                        throw HttpError.NotFound("Page not found: " + request.PageIdentifier);
+
+                    var pageData = node.GetPageData();
+                    if (pageData == null || pageData.Controls == null)
+                        throw HttpError.NotFound("Page has no controls: " + request.PageIdentifier);
+
+                    // Find the specific widget within the page's controls
+                    var control = pageData.Controls.FirstOrDefault(c => c.Id == widgetGuid);
                     if (control == null)
-                        throw HttpError.NotFound("Widget not found: " + request.WidgetId);
+                        throw HttpError.NotFound("Widget " + request.WidgetId + " not found on page " + request.PageIdentifier);
 
                     response.WidgetId = control.Id.ToString();
                     response.ObjectType = control.ObjectType ?? string.Empty;
