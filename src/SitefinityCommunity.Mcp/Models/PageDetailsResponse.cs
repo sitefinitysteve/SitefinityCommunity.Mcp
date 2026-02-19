@@ -24,6 +24,7 @@ public sealed class PageDetailsResponse
 /// </summary>
 public sealed class PageWidgetInfo
 {
+    public string Id { get; set; } = string.Empty;
     public string ObjectType { get; set; } = string.Empty;
     public string WidgetName { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
@@ -31,4 +32,5 @@ public sealed class PageWidgetInfo
     public string Caption { get; set; } = string.Empty;
     public bool IsLayoutControl { get; set; }
     public Dictionary<string, string> Properties { get; set; } = [];
+    public Dictionary<string, string> SettingsProperties { get; set; } = [];
 }

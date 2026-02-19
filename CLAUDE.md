@@ -43,7 +43,9 @@ SitefinityCommunity.Mcp/
     │   │   ├── ModuleInfo.cs          ← Installed module metadata
     │   │   ├── DynamicTypeInfo.cs     ← Module Builder type metadata
     │   │   ├── DynamicFieldInfo.cs    ← Dynamic type field definition
-    │   │   └── RoutesResponse.cs    ← Page routes, API routes, OData routes
+    │   │   ├── RoutesResponse.cs    ← Page routes, API routes, OData routes
+    │   │   ├── PageDetailsResponse.cs  ← Page details + PageWidgetInfo with Settings
+    │   │   └── WidgetPropertiesResponse.cs ← Single widget full properties response
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -64,7 +66,8 @@ SitefinityCommunity.Mcp/
     │       ├── SitefinityStatusTools.cs ← check_status
     │       ├── SitefinityInfoTools.cs ← get_site_info, list_modules
     │       ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
-    │       └── RouteTools.cs          ← list_page_routes, list_api_routes
+    │       ├── RouteTools.cs          ← list_page_routes, list_api_routes
+    │       └── PageTools.cs           ← get_page_details, get_widget_properties
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
         ├── McpInit.cs                 ← Registration (checks Enabled + ApiKey before registering)
@@ -245,6 +248,8 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/routes` | GET | Combined page + API routes (backward compat) |
 | `/mcp/page-routes` | GET | CMS page routes with URL evaluation warnings |
 | `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
+| `/mcp/page-details` | GET | Full page details with widgets and properties (Level 1 + Level 2 Settings) |
+| `/mcp/widgets/{WidgetId}/properties` | GET | Full widget properties with both Level 1 and Level 2 Settings children |
 
 ## Coding Conventions
 

@@ -211,6 +211,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
     public class McpPageWidgetInfo
     {
+        public string Id { get; set; }
         public string ObjectType { get; set; }
         public string WidgetName { get; set; }
         public string FriendlyName { get; set; }
@@ -218,5 +219,27 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Caption { get; set; }
         public bool IsLayoutControl { get; set; }
         public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> SettingsProperties { get; set; } = new Dictionary<string, string>();
+    }
+
+    // ── Widget Properties Request/Response DTOs ───────────────────
+
+    [Route("/mcp/widgets/{WidgetId}/properties", "GET")]
+    public class GetWidgetProperties : IReturn<McpWidgetPropertiesResponse>
+    {
+        public string WidgetId { get; set; }
+    }
+
+    public class McpWidgetPropertiesResponse
+    {
+        public string WidgetId { get; set; }
+        public string ObjectType { get; set; }
+        public string FriendlyName { get; set; }
+        public string PlaceHolder { get; set; }
+        public string Caption { get; set; }
+        public bool IsLayoutControl { get; set; }
+        public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> SettingsProperties { get; set; } = new Dictionary<string, string>();
+        public List<string> Warnings { get; set; } = new List<string>();
     }
 }

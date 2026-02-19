@@ -179,6 +179,45 @@ public sealed class MetadataServiceUnitTests
     }
 
     [Fact]
+    public async Task GetWidgetProperties_DeserializesCorrectly()
+    {
+        var json = JsonSerializer.Serialize(new WidgetPropertiesResponse
+        {
+            WidgetId = "11111111-2222-3333-4444-555555555555",
+            ObjectType = "Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy",
+            FriendlyName = "ContentBlock",
+            PlaceHolder = "Content",
+            Caption = "Content block",
+            IsLayoutControl = false,
+            Properties = new Dictionary<string, string>
+            {
+                ["ControllerName"] = "ContentBlock",
+                ["ID"] = "11111111-2222-3333-4444-555555555555",
+                ["Settings"] = ""
+            },
+            SettingsProperties = new Dictionary<string, string>
+            {
+                ["SharedContentID"] = "aabbccdd-1122-3344-5566-778899001122",
+                ["ProviderName"] = "OpenAccessProvider"
+            },
+            Warnings = []
+        });
+
+        var service = CreateService(json);
+        var result = await service.GetWidgetPropertiesAsync("11111111-2222-3333-4444-555555555555");
+
+        Assert.Equal("11111111-2222-3333-4444-555555555555", result.WidgetId);
+        Assert.Equal("Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy", result.ObjectType);
+        Assert.Equal("ContentBlock", result.FriendlyName);
+        Assert.Equal("Content", result.PlaceHolder);
+        Assert.Equal(3, result.Properties.Count);
+        Assert.Equal("ContentBlock", result.Properties["ControllerName"]);
+        Assert.Equal(2, result.SettingsProperties.Count);
+        Assert.Equal("aabbccdd-1122-3344-5566-778899001122", result.SettingsProperties["SharedContentID"]);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
     public async Task ListApiRoutes_HandlesEmptyODataGracefully()
     {
         var json = JsonSerializer.Serialize(new ApiRoutesResponse

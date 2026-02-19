@@ -390,6 +390,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                                 {
                                     var widget = new McpPageWidgetInfo
                                     {
+                                        Id = control.Id.ToString(),
                                         ObjectType = control.ObjectType ?? string.Empty,
                                         PlaceHolder = control.PlaceHolder ?? string.Empty,
                                         Caption = control.Caption ?? string.Empty,
@@ -418,6 +419,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                                         {
                                             widget.FriendlyName = controllerName;
                                         }
+
+                                        // Extract Level 2 Settings children
+                                        ExtractSettingsProperties(control.Properties, widget.SettingsProperties, 500);
                                     }
 
                                     response.Widgets.Add(widget);
@@ -447,6 +451,81 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             catch (Exception ex)
             {
                 throw new HttpError(HttpStatusCode.InternalServerError, "Error reading page details: " + ex.Message);
+            }
+
+            return response;
+        }
+
+        /// <summary>
+        /// GET /RestApi/mcp/widgets/{WidgetId}/properties — Full widget details with both property levels.
+        /// </summary>
+        public McpWidgetPropertiesResponse Get(GetWidgetProperties request)
+        {
+            if (string.IsNullOrWhiteSpace(request.WidgetId))
+                throw HttpError.BadRequest("WidgetId is required.");
+
+            Guid widgetGuid;
+            if (!Guid.TryParse(request.WidgetId, out widgetGuid))
+                throw HttpError.BadRequest("WidgetId must be a valid GUID.");
+
+            var response = new McpWidgetPropertiesResponse();
+
+            try
+            {
+                var pageManager = PageManager.GetManager();
+                pageManager.Provider.SuppressSecurityChecks = true;
+
+                try
+                {
+                    var control = pageManager.GetControl<ObjectData>(widgetGuid);
+                    if (control == null)
+                        throw HttpError.NotFound("Widget not found: " + request.WidgetId);
+
+                    response.WidgetId = control.Id.ToString();
+                    response.ObjectType = control.ObjectType ?? string.Empty;
+                    response.PlaceHolder = control.PlaceHolder ?? string.Empty;
+                    response.Caption = control.Caption ?? string.Empty;
+                    response.IsLayoutControl = control.IsLayoutControl;
+
+                    // Derive friendly name
+                    var widgetName = ExtractWidgetName(response.ObjectType);
+                    response.FriendlyName = widgetName;
+
+                    // Extract Level 1 properties
+                    if (control.Properties != null)
+                    {
+                        foreach (var prop in control.Properties)
+                        {
+                            var val = prop.Value ?? string.Empty;
+                            if (val.Length > 2000)
+                                val = val.Substring(0, 2000) + "... (truncated)";
+                            response.Properties[prop.Name] = val;
+                        }
+
+                        // For MVC widgets, extract controller name as friendly name
+                        string controllerName;
+                        if (response.Properties.TryGetValue("ControllerName", out controllerName)
+                            && !string.IsNullOrEmpty(controllerName))
+                        {
+                            response.FriendlyName = controllerName;
+                        }
+
+                        // Extract Level 2 Settings children (higher truncation limit)
+                        ExtractSettingsProperties(control.Properties, response.SettingsProperties, 2000);
+                    }
+                }
+                finally
+                {
+                    pageManager.Provider.SuppressSecurityChecks = false;
+                }
+            }
+            catch (HttpError)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HttpError(HttpStatusCode.InternalServerError, "Error reading widget properties: " + ex.Message);
             }
 
             return response;
@@ -538,6 +617,33 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Extracts Level 2 (Settings children) properties from a control's property collection.
+        /// The "Settings" Level 1 property is a container whose ChildProperties hold the actual
+        /// widget configuration values (designer fields, content, etc.).
+        /// </summary>
+        private void ExtractSettingsProperties(
+            IEnumerable<ControlProperty> properties,
+            Dictionary<string, string> target,
+            int truncateLength)
+        {
+            foreach (var prop in properties)
+            {
+                if (string.Equals(prop.Name, "Settings", StringComparison.OrdinalIgnoreCase)
+                    && prop.ChildProperties != null)
+                {
+                    foreach (var child in prop.ChildProperties)
+                    {
+                        var val = child.Value ?? string.Empty;
+                        if (val.Length > truncateLength)
+                            val = val.Substring(0, truncateLength) + "... (truncated)";
+                        target[child.Name] = val;
+                    }
+                    break;
+                }
+            }
         }
 
         /// <summary>

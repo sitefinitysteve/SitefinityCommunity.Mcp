@@ -14,4 +14,5 @@ public interface ISitefinityMetadataService
     Task<PageRoutesResponse> ListPageRoutesAsync(string? environment = null, CancellationToken ct = default);
     Task<ApiRoutesResponse> ListApiRoutesAsync(string? environment = null, CancellationToken ct = default);
     Task<PageDetailsResponse> GetPageDetailsAsync(string pageIdentifier, string? environment = null, CancellationToken ct = default);
+    Task<WidgetPropertiesResponse> GetWidgetPropertiesAsync(string widgetId, string? environment = null, CancellationToken ct = default);
 }

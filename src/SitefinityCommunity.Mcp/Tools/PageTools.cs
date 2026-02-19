@@ -40,4 +40,30 @@ public sealed class PageTools
             return $"Error: {ex.Message}";
         }
     }
+
+    [McpServerTool(Name = "sitefinity_get_widget_properties", ReadOnly = true)]
+    [Description("Get full property details for a specific widget by its GUID. Returns both Level 1 properties " +
+                 "(ControllerName, ID) and Level 2 Settings children (the actual designer field values, content, etc.). " +
+                 "Use sitefinity_get_page_details first to find widget IDs on a page.")]
+    public async Task<string> GetWidgetProperties(
+        [Description("The widget GUID (from sitefinity_get_page_details results)")]
+        string widgetId,
+        [Description("Target environment name (uses default if omitted)")]
+        string? environment = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var widget = await this._metadataService.GetWidgetPropertiesAsync(widgetId, environment, ct);
+            return JsonSerializer.Serialize(widget, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (HttpRequestException ex)
+        {
+            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+        }
+        catch (Exception ex)
+        {
+            return $"Error: {ex.Message}";
+        }
+    }
 }

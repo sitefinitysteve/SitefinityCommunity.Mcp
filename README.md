@@ -132,7 +132,8 @@ Once configured, these tools are available in Claude Code:
 | `sitefinity_get_type_fields` | Field definitions for a specific dynamic type |
 | `sitefinity_list_page_routes` | All CMS page routes via Sitemap API (fast, cached). Includes URL evaluation warnings for pages with dynamic routing |
 | `sitefinity_list_api_routes` | ServiceStack REST API routes and OData entity sets |
-| `sitefinity_get_page_details` | Full page detail by ID, URL path, slug, or title. Returns page metadata, template name, and every widget on the page with its configured properties |
+| `sitefinity_get_page_details` | Full page detail by ID, URL path, slug, or title. Returns page metadata, template name, and every widget on the page with its configured properties (including Level 2 Settings children) |
+| `sitefinity_get_widget_properties` | Full property details for a single widget by GUID. Returns both Level 1 properties and Level 2 Settings children (designer field values, content, etc.) with higher truncation limits |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -142,11 +143,13 @@ The page tools give your AI assistant visibility into Sitefinity's CMS page stru
 
 **`sitefinity_list_page_routes`** — Uses Sitefinity's **Sitemap API** (`FrontendSiteMap` provider) for performance. The sitemap is an in-memory cached representation of the page tree, so listing hundreds of pages is fast without hitting `PageManager` queries. Returns each page's URL, title, depth in the tree, and flags pages that use dynamic URL evaluation (which can cause routing surprises).
 
-**`sitefinity_get_page_details`** — Returns everything about a single page: metadata (ID, title, URL, template name, published status) and **every widget placed on the page** with their configured properties. Each widget includes its CLR type, placeholder location, caption, whether it's a layout control, and a flat dictionary of all its property values. Accepts flexible lookup by:
+**`sitefinity_get_page_details`** — Returns everything about a single page: metadata (ID, title, URL, template name, published status) and **every widget placed on the page** with their configured properties. Each widget includes its GUID, CLR type, placeholder location, caption, whether it's a layout control, Level 1 properties, and Level 2 Settings children (the actual designer field values). Accepts flexible lookup by:
 - **Page ID** (Guid) — `fefefa59-f39a-4ac9-bf2f-a54d005f135d`
 - **URL path** — `/ug/home`
 - **URL slug** — `home`
 - **Page title** — `UGME Home` (exact match preferred, partial match with warning)
+
+**`sitefinity_get_widget_properties`** — Returns full property details for a single widget by its GUID (from `sitefinity_get_page_details` results). Returns both Level 1 properties (ControllerName, ID, Settings) and Level 2 Settings children (SharedContentID, ProviderName, Model JSON, etc.) with higher truncation limits than the page-level view. Use this when you need to inspect the actual configured values of a specific widget.
 
 This is particularly useful for understanding page composition — seeing which widgets are on a page, what layout grid they're in, and what properties are configured — without needing to open the Sitefinity backend.
 
