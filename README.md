@@ -8,11 +8,11 @@ Inspired by [Laravel Boost](https://github.com/nicepkg/laravel-boost) — design
 
 ## Why this exists
 
-Sitefinity developers deserve the same AI-assisted workflow that every other framework already has. Laravel has Boost, Rails has its own MCP servers, Next.js devs have first-class tooling — but Sitefinity? Nothing.
+MCP servers are popping up across the web development ecosystem — Laravel has Boost, Rails and Next.js have their own — and Sitefinity deserves one too.
 
-The official Sitefinity team moves at their own pace, and the developer experience tooling we need keeps not showing up. So instead of waiting, this project builds it. Community-driven, open source, and designed by someone who ships Sitefinity code every day and knows what's actually painful.
+I built this for myself. I work in Sitefinity every day and wanted the same AI-assisted workflow that other frameworks already have. Sitefinity's official repos exist on GitHub, but community PRs tend to sit — and when you need something for your day-to-day, you can't wait indefinitely. This scratches my own itch first: if a feature would save me time on a real project, it gets built. That means it stays practical and actively maintained, not theoretical.
 
-If you've ever wished Claude could just *read your Sitefinity logs*, or know what modules and content types you have installed, or check if your site is even running — that's exactly what this does.
+It's open source and community-driven — contributions, ideas, and feedback are welcome. No guarantees on timelines (this is a side project), but because I use it daily, useful improvements tend to land quickly.
 
 ## Features
 
