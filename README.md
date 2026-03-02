@@ -112,10 +112,30 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-### 4. Use the tools
+### 4. Configure VS Code
+
+Create `.vscode/mcp.json` in your workspace (or run **MCP: Add Server** from the Command Palette):
+
+```json
+{
+    "servers": {
+        "sitefinity-mcp": {
+            "command": "dotnet",
+            "args": ["run", "--project", "C:\\GitHub\\SitefinityCommunity.Mcp\\src\\SitefinityCommunity.Mcp"],
+            "env": {
+                "SITEFINITY_MCP_CONFIG": "C:\\Path\\To\\sitefinity-mcp.json"
+            }
+        }
+    }
+}
+```
+
+Then open Chat in VS Code and approve the MCP trust prompt when asked.
+
+### 5. Use the tools
 
 <a id="available-tools"></a>
-Once configured, these tools are available in Claude Code:
+Once configured, these tools are available in Claude Code and VS Code:
 
 | Tool | Description |
 |------|-------------|
