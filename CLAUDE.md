@@ -28,7 +28,9 @@ SitefinityCommunity.Mcp/
 │       │   └── StatusServiceTests.cs
 │       └── Unit/                      ← Offline tests with mocked HTTP
 │           ├── MetadataServiceUnitTests.cs
-│           └── RouteToolsUnitTests.cs
+│           ├── RouteToolsUnitTests.cs
+│           ├── PageToolsUnitTests.cs
+│           └── SitefinityDocsResourcesTests.cs
 └── src/
     ├── SitefinityCommunity.Mcp/       ← THE MCP SERVER
     │   ├── Program.cs                 ← Entry point, DI, MCP server config, tool filter
@@ -67,6 +69,11 @@ SitefinityCommunity.Mcp/
     │       ├── SitefinityInfoTools.cs ← get_site_info, list_modules
     │       ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
     │       ├── RouteTools.cs          ← list_page_routes, list_api_routes
+│       └── PageTools.cs           ← get_page_details, get_widget_properties
+│   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
+│   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
+│   └── Docs/                      ← Embedded resource files
+│       └── WidgetDesignerAttributes.md ← Sitefinity widget attribute reference
     │       └── PageTools.cs           ← get_page_details, get_widget_properties
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
@@ -172,6 +179,60 @@ public sealed class MyNewTools
 1. Add a request DTO to `SitefinityPlugin/McpLogRequest.cs`
 2. Add a handler to `SitefinityPlugin/McpLogService.cs`
 3. Copy updated files to the installed location in the Sitefinity project
+
+## How to Add a New Resource
+
+Resources are auto-discovered via `[McpServerResourceType]` — registered in `Program.cs` with `.WithResourcesFromAssembly()`.
+
+Resources provide static reference material that clients can read on demand (unlike tools which perform actions). Content is compiled into the assembly as embedded resources.
+
+### Step 1: Add the content file to `Docs/`
+
+Place the markdown (or other content) file in `src/SitefinityCommunity.Mcp/Docs/` and register it as an embedded resource in the `.csproj`:
+
+```xml
+<ItemGroup>
+  <EmbeddedResource Include="Docs\YourFile.md" />
+</ItemGroup>
+```
+
+### Step 2: Create a resource class in `Resources/`
+
+```csharp
+using System.ComponentModel;
+using System.Reflection;
+using ModelContextProtocol.Server;
+
+namespace SitefinityCommunity.Mcp.Resources;
+
+[McpServerResourceType]
+public sealed class MyResources
+{
+    private static readonly Lazy<string> Content = new(() =>
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream("SitefinityCommunity.Mcp.Docs.YourFile.md")
+            ?? throw new InvalidOperationException("Embedded resource not found.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    });
+
+    [McpServerResource(
+        Name = "sitefinity_my_resource",
+        Title = "Human-Readable Title",
+        MimeType = "text/markdown")]
+    [Description("What this resource contains — clients use this to decide when to read it.")]
+    public static string GetMyResource() => Content.Value;
+}
+```
+
+### Conventions
+
+- Resource names: `sitefinity_` prefix, snake_case
+- Return type: `string` for text content
+- Use `Lazy<string>` to load embedded resources once and cache
+- Use `[Description]` — Claude uses this to decide when the resource is relevant
+- Embedded resource names follow: `{RootNamespace}.{FolderPath}.{FileName}` (dots for path separators)
 
 ## Key Architecture Decisions
 

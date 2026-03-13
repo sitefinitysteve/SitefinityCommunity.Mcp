@@ -87,6 +87,7 @@ builder.Services
     })
     .WithStdioServerTransport()
     .WithToolsFromAssembly()
+    .WithResourcesFromAssembly()
     // API key validation filter — runs before every tool call
     .AddCallToolFilter(next => async (context, cancellationToken) =>
     {
