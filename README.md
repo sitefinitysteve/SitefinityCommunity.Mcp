@@ -28,11 +28,71 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Auto-Discovery** — New tools are picked up automatically via `[McpServerToolType]` attribute
 - **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin
 
-## Quick Start
+## Installation
 
-### 1. Create a config file
+There are two components to set up: the **MCP server** (runs on your dev machine) and the **Sitefinity plugin** (drops into your Sitefinity web app). Follow these steps in order.
 
-Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
+### Step 1 — Get the MCP server
+
+Clone this repo to your local machine:
+
+```bash
+git clone https://github.com/SitefinityCommunity/SitefinityCommunity.Mcp.git
+cd SitefinityCommunity.Mcp
+dotnet build
+```
+
+### Step 2 — Install the plugin into your Sitefinity project
+
+The companion plugin exposes REST endpoints at `/RestApi/mcp/*` that the MCP server calls. It's distributed as source files (not a NuGet package) so it compiles against your existing Sitefinity assemblies — no DLL binding conflicts across versions.
+
+Run the install script, pointing it at your Sitefinity web app root:
+
+```powershell
+.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
+```
+
+This copies the plugin source files into `Code\Mcp\SitefinityCommunity\` in your project.
+
+Then wire it up in `Global.asax.cs` inside your `Bootstrapper_Initialized` handler:
+
+```csharp
+protected void Bootstrapper_Initialized(object sender, ExecutedEventArgs e)
+{
+    if (e.CommandName == "Bootstrapped")
+    {
+        SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
+    }
+}
+```
+
+Build your Sitefinity project and recycle the app pool.
+
+### Step 3 — Generate an API key
+
+The MCP server and Sitefinity plugin authenticate with a shared API key. Generate a cryptographically secure one:
+
+```bash
+dotnet run --project src/SitefinityCommunity.Mcp -- generate-key
+```
+
+This prints a new 256-bit Base64 key. Copy it — you'll use it in the next two steps.
+
+> **Important:** The key flow is one direction only — generate it here, then paste it into both places. Do **not** copy the key back out of Sitefinity's Advanced config — what's stored there is the encrypted value, not the original key.
+
+### Step 4 — Configure the Sitefinity plugin
+
+In **Sitefinity Admin > Settings > Advanced > McpSettings**:
+
+1. Paste the generated key into **API Key**
+2. Check **Enabled** (it's `false` by default — you must opt in)
+3. Save, then **recycle the app pool** — the Enabled flag and API key are read at startup
+
+The key is stored encrypted at rest via Sitefinity's `[SecretData]` mechanism. What you see in the Advanced config after saving is the encrypted form — always use the original generated key in `sitefinity-mcp.json`.
+
+### Step 5 — Create your config file
+
+Create `sitefinity-mcp.json` somewhere on your machine (keep it gitignored — it contains keys):
 
 ```json
 {
@@ -41,7 +101,7 @@ Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
         "dev": {
             "url": "https://dev.example.com",
             "logsPath": "C:\\Path\\To\\Sitefinity\\App_Data\\Sitefinity\\Logs",
-            "sitefinityApiKey": "your-dev-api-key"
+            "sitefinityApiKey": "your-key-from-step-3"
         },
         "staging": {
             "url": "https://staging.example.com",
@@ -51,49 +111,13 @@ Create `sitefinity-mcp.json` (keep this gitignored — it contains keys):
 }
 ```
 
-- `logsPath` set = local log reading (same machine as Sitefinity)
-- `logsPath` empty = remote log reading via companion plugin HTTP endpoints
-- `sitefinityApiKey` is **required** for every environment
+- **`sitefinityApiKey`** — paste the same key you put in Sitefinity Admin
+- **`logsPath`** — set this when Sitefinity runs on the same machine (local mode). Omit it for remote servers — logs are fetched via HTTP through the plugin instead
+- **`url`** — required for every environment
 
-### 2. Setting Up API Keys
+### Step 6 — Configure your AI client
 
-API keys must match on both sides. Use the built-in generator to create a cryptographically secure key:
-
-```bash
-dotnet run --project src/SitefinityCommunity.Mcp -- generate-key
-```
-
-This prints a new 256-bit Base64 key and setup instructions. Then:
-
-1. **Set it in `sitefinity-mcp.json`** — as `sitefinityApiKey` for each environment
-2. **Set the same key in Sitefinity** — Admin > Settings > Advanced > McpSettings > API Key
-3. **Check "Enabled"** in McpSettings (it's `false` by default — you must opt in)
-
-The key is encrypted at rest in Sitefinity's config via `[SecretData]`.
-
-The MCP server validates keys by calling `GET /RestApi/mcp/ping` with the configured key. If the keys don't match, all tool calls return a clear error message instead of cryptic 401s.
-
-**Key validation behavior:**
-- **Keys match** — tools work normally
-- **Keys don't match** — tools return: "API key mismatch..." error
-- **Sitefinity unreachable** — tools proceed with a warning (so you can still read local logs when debugging a down server)
-- **Blank keys** — rejected on both sides (MCP server won't start; Sitefinity won't register endpoints)
-
-### Security Model
-
-**Enabled flag** — The `Enabled` checkbox in Sitefinity Admin > Advanced > McpSettings acts as a kill switch with two enforcement layers:
-
-1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
-2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
-
-**Encryption at rest** — The API key in Sitefinity's config is marked with `[SecretData]`, so it's stored encrypted in `McpConfig.config`. Sitefinity decrypts it transparently when the property is read in code.
-
-**Blank key protection** — Blank, empty, and whitespace-only keys are rejected at every checkpoint:
-- MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
-- Sitefinity startup (`McpInit.Register`) — plugin won't register endpoints
-- Sitefinity request filter (`McpApiKeyAttribute`) — requests blocked at runtime
-
-### 3. Configure Claude Code
+#### Claude Code
 
 Add to your project's `.mcp.json`:
 
@@ -112,7 +136,7 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-### 4. Configure VS Code
+#### VS Code
 
 Create `.vscode/mcp.json` in your workspace (or run **MCP: Add Server** from the Command Palette):
 
@@ -132,10 +156,21 @@ Create `.vscode/mcp.json` in your workspace (or run **MCP: Add Server** from the
 
 Then open Chat in VS Code and approve the MCP trust prompt when asked.
 
-### 5. Use the tools
+### Step 7 — Verify the connection
+
+Ask Claude: *"Check if Sitefinity is running"* — it will call `sitefinity_check_status`. If the API keys don't match, you'll get a clear error message rather than a cryptic 401.
+
+**Key validation behavior:**
+- **Keys match** — tools work normally
+- **Keys don't match** — tools return: "API key mismatch..." error
+- **Sitefinity unreachable** — tools proceed with a warning (so you can still read local logs when debugging a down server)
+- **Blank keys** — rejected on both sides (MCP server won't start; Sitefinity won't register endpoints)
+
+---
+
+## Available Tools
 
 <a id="available-tools"></a>
-Once configured, these tools are available in Claude Code and VS Code:
 
 | Tool | Description |
 |------|-------------|
@@ -171,13 +206,29 @@ The page tools give your AI assistant visibility into Sitefinity's CMS page stru
 
 **`sitefinity_get_widget_properties`** — Returns full property details for a single widget by its GUID and the page it's on (both from `sitefinity_get_page_details` results). Returns both Level 1 properties (ControllerName, ID, Settings) and Level 2 Settings children (SharedContentID, ProviderName, Model JSON, etc.) with higher truncation limits than the page-level view. Use this when you need to inspect the actual configured values of a specific widget.
 
-This is particularly useful for understanding page composition — seeing which widgets are on a page, what layout grid they're in, and what properties are configured — without needing to open the Sitefinity backend.
+---
+
+## Security Model
+
+**Enabled flag** — The `Enabled` checkbox in Sitefinity Admin > Advanced > McpSettings acts as a kill switch with two enforcement layers:
+
+1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
+2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
+
+**Encryption at rest** — The API key in Sitefinity's config is marked with `[SecretData]`, so it's stored encrypted in `McpConfig.config`. Sitefinity decrypts it transparently when the property is read in code.
+
+**Blank key protection** — Blank, empty, and whitespace-only keys are rejected at every checkpoint:
+- MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
+- Sitefinity startup (`McpInit.Register`) — plugin won't register endpoints
+- Sitefinity request filter (`McpApiKeyAttribute`) — requests blocked at runtime
+
+---
 
 ## Architecture
 
 **Two-component design:**
 
-1. **MCP Server** (this project) — .NET console app using the official [ModelContextProtocol SDK](https://www.nuget.org/packages/ModelContextProtocol). Communicates with Claude Code via stdio.
+1. **MCP Server** (this repo) — .NET console app using the official [ModelContextProtocol SDK](https://www.nuget.org/packages/ModelContextProtocol). Communicates with Claude Code via stdio.
 2. **Sitefinity Plugin** (source files) — `.cs` files you drop into any Sitefinity web app. Registers ServiceStack endpoints at `/RestApi/mcp/*` for remote log access. Compiles against your existing assemblies — no DLL conflicts.
 
 ```
@@ -212,6 +263,8 @@ This is particularly useful for understanding page composition — seeing which 
 **Local mode** (dev): MCP server reads log files directly from disk via `logsPath`.
 **Remote mode** (staging/prod): MCP server calls plugin REST endpoints at `/RestApi/mcp/*`, authenticated with `X-MCP-API-Key` header. The plugin queries Sitefinity's internal APIs and returns results as JSON.
 
+---
+
 ## Adding New Tools
 
 Create a class, annotate it, inject services — done. Zero changes to Program.cs:
@@ -230,6 +283,8 @@ public sealed class ContentTools(ISitefinityStatusService status)
     }
 }
 ```
+
+---
 
 ## Testing
 
@@ -254,25 +309,7 @@ dotnet test --filter "Category=Integration"
 Integration tests skip automatically if `test-config.json` is missing or
 Sitefinity is unreachable — they won't fail your build.
 
-## Companion Sitefinity Plugin
-
-For remote servers (staging, production), install the companion plugin into your Sitefinity web app:
-
-```powershell
-.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
-```
-
-This copies the plugin source files into `Code\Mcp\SitefinityCommunity\` in your project. Then add one line to `Global.asax.cs` in your `Bootstrapper_Initialized` handler:
-
-```csharp
-SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
-```
-
-Configure in **Sitefinity Admin > Settings > Advanced > McpSettings**:
-- **API Key** — must match `sitefinityApiKey` in your `sitefinity-mcp.json`
-- **Enabled** — `false` by default. Must be explicitly enabled. Uncheck to disable all MCP endpoints (requires app pool recycle; runtime requests are also blocked immediately)
-
-Source files compile against your existing Sitefinity assemblies — no DLL binding issues across Sitefinity versions. See the [plugin README](src/SitefinityCommunity.Mcp.SitefinityPlugin/README.md) for the full explanation.
+---
 
 ## Author
 
