@@ -144,10 +144,34 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Name { get; set; }
         public string Title { get; set; }
         public string FieldType { get; set; }
+        public string ClrType { get; set; }
         public bool IsRequired { get; set; }
         public bool IsMainField { get; set; }
         public string ClassificationName { get; set; }
         public string RelatedDataType { get; set; }
+    }
+
+    [Route("/mcp/modules/{ModuleName}/structure", "GET")]
+    public class GetModuleStructure : IReturn<McpModuleStructureResponse>
+    {
+        public string ModuleName { get; set; }
+    }
+
+    public class McpModuleStructureResponse
+    {
+        public string ModuleName { get; set; }
+        public string ModuleTitle { get; set; }
+        public List<McpDynamicTypeNode> RootTypes { get; set; } = new List<McpDynamicTypeNode>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpDynamicTypeNode
+    {
+        public string TypeName { get; set; }
+        public string TypeFullName { get; set; }
+        public string ParentTypeName { get; set; }
+        public List<McpDynamicFieldInfo> Fields { get; set; } = new List<McpDynamicFieldInfo>();
+        public List<McpDynamicTypeNode> ChildTypes { get; set; } = new List<McpDynamicTypeNode>();
     }
 
     // ── Route Response DTOs ────────────────────────────────────────
@@ -156,6 +180,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     {
         public string Title { get; set; }
         public string Url { get; set; }
+        public string Slug { get; set; }
+        public List<string> AdditionalUrls { get; set; }
         public string NodeType { get; set; }
         public bool IsPublished { get; set; }
         public int Depth { get; set; }
@@ -241,6 +267,244 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public bool IsLayoutControl { get; set; }
         public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
         public Dictionary<string, string> SettingsProperties { get; set; } = new Dictionary<string, string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // ── Content / Templates / Taxonomies / Page-Widget-Tree DTOs ─────
+
+    [Route("/mcp/content", "GET")]
+    public class ListContent : IReturn<McpContentListResponse>
+    {
+        public string TypeFullName { get; set; }
+        public int Take { get; set; }
+        public int Skip { get; set; }
+    }
+
+    public class McpContentItemInfo
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string UrlName { get; set; }
+        public string Status { get; set; }
+        public DateTime? DateCreated { get; set; }
+        public DateTime? LastModified { get; set; }
+        public string ContentType { get; set; }
+    }
+
+    public class McpContentListResponse
+    {
+        public string TypeFullName { get; set; }
+        public int TotalCount { get; set; }
+        public int Take { get; set; }
+        public int Skip { get; set; }
+        public List<McpContentItemInfo> Items { get; set; } = new List<McpContentItemInfo>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    [Route("/mcp/templates", "GET")]
+    public class ListTemplates : IReturn<McpTemplatesResponse>
+    {
+        /// <summary>When true, backend/hybrid admin templates are included. Default: false.</summary>
+        public bool IncludeBackend { get; set; }
+    }
+
+    public class McpPageTemplateInfo
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Name { get; set; }
+        public string Framework { get; set; }
+        public string ParentTemplateId { get; set; }
+        public string Culture { get; set; }
+        /// <summary>Resource package / theme the template belongs to (MVC templates only).</summary>
+        public string ResourcePackage { get; set; }
+        public bool IsBackend { get; set; }
+    }
+
+    public class McpTemplatesResponse
+    {
+        public List<McpPageTemplateInfo> Templates { get; set; } = new List<McpPageTemplateInfo>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    [Route("/mcp/taxonomies", "GET")]
+    public class ListTaxonomies : IReturn<McpTaxonomiesResponse>
+    {
+    }
+
+    public class McpTaxonomyInfo
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Title { get; set; }
+        public string TaxonomyType { get; set; }
+        public int TaxaCount { get; set; }
+    }
+
+    public class McpTaxonInfo
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Title { get; set; }
+        public string ParentId { get; set; }
+    }
+
+    public class McpTaxonomiesResponse
+    {
+        public List<McpTaxonomyInfo> Taxonomies { get; set; } = new List<McpTaxonomyInfo>();
+        public Dictionary<string, List<McpTaxonInfo>> Taxa { get; set; } = new Dictionary<string, List<McpTaxonInfo>>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    [Route("/mcp/page-widget-tree", "GET")]
+    public class GetPageWidgetTree : IReturn<McpPageWidgetTreeResponse>
+    {
+        public string PageIdentifier { get; set; }
+        public bool IncludeLayoutControls { get; set; }
+    }
+
+    public class McpPageWidgetTreeResponse
+    {
+        public string PageId { get; set; }
+        public string PageTitle { get; set; }
+        public string PageUrl { get; set; }
+        public string TemplateId { get; set; }
+        public List<McpPlaceholderNode> Placeholders { get; set; } = new List<McpPlaceholderNode>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpPlaceholderNode
+    {
+        public string Name { get; set; }
+        public List<McpWidgetNode> Widgets { get; set; } = new List<McpWidgetNode>();
+    }
+
+    public class McpWidgetNode
+    {
+        public string Id { get; set; }
+        public string ObjectType { get; set; }
+        public string ControllerName { get; set; }
+        public string FriendlyName { get; set; }
+        public string Caption { get; set; }
+        public string PlaceHolder { get; set; }
+        public bool IsLayoutControl { get; set; }
+        public string SiblingId { get; set; }
+        public int RenderOrder { get; set; }
+        public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
+        public List<McpPlaceholderNode> Children { get; set; } = new List<McpPlaceholderNode>();
+    }
+
+    // ── Forms DTOs ────────────────────────────────────────────────────
+
+    [Route("/mcp/forms", "GET")]
+    public class ListForms : IReturn<McpFormsResponse>
+    {
+    }
+
+    [Route("/mcp/forms/{FormIdentifier}/fields", "GET")]
+    public class GetFormFields : IReturn<McpFormFieldsResponse>
+    {
+        public string FormIdentifier { get; set; }
+
+        /// <summary>
+        /// When true, the response includes a raw dump of every FormControl's
+        /// Properties + ChildProperties tree under <see cref="McpFormFieldsResponse.DebugDump"/>.
+        /// Use this to troubleshoot empty Name/Title results on unfamiliar Sitefinity versions.
+        /// </summary>
+        public bool Debug { get; set; }
+    }
+
+    [Route("/mcp/forms/{FormIdentifier}/responses", "GET")]
+    public class ListFormResponses : IReturn<McpFormResponsesResponse>
+    {
+        public string FormIdentifier { get; set; }
+        public int Take { get; set; }
+        public int Skip { get; set; }
+
+        /// <summary>
+        /// When set, only entries where at least one field value contains this term
+        /// (case-insensitive) are returned. Matching is performed against the redacted
+        /// values, so sensitive fields can never leak via search.
+        /// </summary>
+        public string SearchTerm { get; set; }
+    }
+
+    public class McpFormInfo
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Title { get; set; }
+        public string Description { get; set; }
+        public bool IsPublished { get; set; }
+        public int FieldCount { get; set; }
+        public int EntryCount { get; set; }
+        public DateTime? LastModified { get; set; }
+    }
+
+    public class McpFormsResponse
+    {
+        public List<McpFormInfo> Forms { get; set; } = new List<McpFormInfo>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpFormFieldInfo
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Title { get; set; }
+        public string FieldType { get; set; }
+        public bool IsRequired { get; set; }
+        public string PlaceHolder { get; set; }
+        public string DefaultValue { get; set; }
+        public List<string> Choices { get; set; } = new List<string>();
+    }
+
+    public class McpFormFieldsResponse
+    {
+        public string FormId { get; set; }
+        public string FormName { get; set; }
+        public string FormTitle { get; set; }
+        public List<McpFormFieldInfo> Fields { get; set; } = new List<McpFormFieldInfo>();
+        public List<string> Warnings { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Populated only when the request's Debug flag is true. Text dump of the raw
+        /// Properties tree for every FormControl on the form — intended to be pasted back
+        /// to a maintainer for diagnosing lookup mismatches.
+        /// </summary>
+        public string DebugDump { get; set; }
+    }
+
+    public class McpFormResponseInfo
+    {
+        public string Id { get; set; }
+        public DateTime? SubmittedOn { get; set; }
+        public string IpAddress { get; set; }
+        public string UserAgent { get; set; }
+        public Dictionary<string, string> Values { get; set; } = new Dictionary<string, string>();
+    }
+
+    public class McpFormResponsesResponse
+    {
+        public string FormId { get; set; }
+        public string FormName { get; set; }
+
+        /// <summary>Total submissions on the form, regardless of search filter.</summary>
+        public int TotalCount { get; set; }
+
+        /// <summary>
+        /// When a SearchTerm was provided, how many entries matched. Equals TotalCount when no
+        /// search was applied.
+        /// </summary>
+        public int MatchedCount { get; set; }
+
+        public int Take { get; set; }
+        public int Skip { get; set; }
+
+        /// <summary>Echo of the search term that was applied, if any.</summary>
+        public string SearchTerm { get; set; }
+
+        public List<McpFormResponseInfo> Responses { get; set; } = new List<McpFormResponseInfo>();
         public List<string> Warnings { get; set; } = new List<string>();
     }
 }

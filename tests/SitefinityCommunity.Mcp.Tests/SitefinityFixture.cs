@@ -114,15 +114,23 @@ public sealed class SitefinityFixture : IAsyncLifetime
         {
             var candidate = Path.Combine(dir, "tests", "test-config.json");
             if (File.Exists(candidate))
+            {
                 return candidate;
+            }
 
             // Also check if we're already in the tests directory
             candidate = Path.Combine(dir, "test-config.json");
             if (File.Exists(candidate))
+            {
                 return candidate;
+            }
 
             var parent = Directory.GetParent(dir);
-            if (parent is null) break;
+            if (parent is null)
+            {
+                break;
+            }
+
             dir = parent.FullName;
         }
 

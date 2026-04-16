@@ -5,6 +5,10 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tools for inspecting Sitefinity pages: retrieving a page's template, widget tree,
+/// and individual widget properties (including both Level 1 and Level 2 designer Settings).
+/// </summary>
 [McpServerToolType]
 public sealed class PageTools
 {
@@ -30,6 +34,36 @@ public sealed class PageTools
         {
             var page = await this._metadataService.GetPageDetailsAsync(pageIdentifier, environment, ct);
             return JsonSerializer.Serialize(page, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (HttpRequestException ex)
+        {
+            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+        }
+        catch (Exception ex)
+        {
+            return $"Error: {ex.Message}";
+        }
+    }
+
+    [McpServerTool(Name = "sitefinity_get_page_widget_tree", ReadOnly = true)]
+    [Description("Return every widget on a page as a placeholder tree in render order. " +
+                 "Layout controls contain nested child placeholders named '{ControlId}_Col00', '_Col01', etc. " +
+                 "The Properties dict merges Level 1 (ORM) and Level 2 (Settings children) with Level 2 winning on conflict. " +
+                 "Use this for full page composition; use sitefinity_get_widget_properties for a single widget.")]
+    public async Task<string> GetPageWidgetTree(
+        [Description("Page identifier: Guid, URL path, URL slug, or page title")]
+        string pageIdentifier,
+        [Description("Include layout controls as explicit widget nodes. When false they still scaffold the tree " +
+                     "but are not emitted as widgets. Default: true.")]
+        bool includeLayoutControls = true,
+        [Description("Target environment name (uses default if omitted)")]
+        string? environment = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var tree = await this._metadataService.GetPageWidgetTreeAsync(pageIdentifier, includeLayoutControls, environment, ct);
+            return JsonSerializer.Serialize(tree, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (HttpRequestException ex)
         {

@@ -20,21 +20,31 @@ public sealed class LogEntry
         var parts = new List<string>();
 
         if (this.Timestamp.HasValue)
+        {
             parts.Add($"[{this.Timestamp:yyyy-MM-dd HH:mm:ss}]");
+        }
 
         if (!string.IsNullOrEmpty(this.Severity))
+        {
             parts.Add($"[{this.Severity}]");
+        }
 
         if (!string.IsNullOrEmpty(this.Type))
+        {
             parts.Add($"({this.Type})");
+        }
 
         parts.Add(this.Message);
 
         if (!string.IsNullOrEmpty(this.RequestedUrl))
+        {
             parts.Add($"\n  URL: {this.RequestedUrl}");
+        }
 
         if (!string.IsNullOrEmpty(this.StackTrace))
+        {
             parts.Add($"\n  Stack: {this.StackTrace}");
+        }
 
         return string.Join(" ", parts);
     }

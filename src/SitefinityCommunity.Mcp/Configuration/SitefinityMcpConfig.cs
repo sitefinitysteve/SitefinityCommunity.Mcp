@@ -102,8 +102,22 @@ public sealed class EnvironmentConfig
     public string SitefinityApiKey { get; set; } = string.Empty;
 
     /// <summary>
+    /// When true, disables secret redaction for this environment's responses (logs, widget properties, etc.).
+    /// Ignored for environments whose name starts with "prod" (case-insensitive) — those always redact.
+    /// Default: false. Set to true only for dev environments where you need raw values for debugging.
+    /// </summary>
+    [JsonPropertyName("allowRawSecrets")]
+    public bool AllowRawSecrets { get; set; }
+
+    /// <summary>
     /// Whether this environment uses local filesystem log access.
     /// </summary>
     [JsonIgnore]
     public bool IsLocalMode => !string.IsNullOrWhiteSpace(this.LogsPath);
+
+    /// <summary>
+    /// True when redaction should be skipped for this environment. Always false for prod-like environments.
+    /// </summary>
+    public bool EffectiveAllowRawSecrets(string environmentName) =>
+        this.AllowRawSecrets && !environmentName.StartsWith("prod", StringComparison.OrdinalIgnoreCase);
 }

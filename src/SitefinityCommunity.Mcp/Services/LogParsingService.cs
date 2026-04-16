@@ -44,7 +44,9 @@ public sealed partial class LogParsingService
     public IReadOnlyList<LogEntry> ParseEntries(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
+        {
             return Array.Empty<LogEntry>();
+        }
 
         var blocks = content.Split(new[] { Separator }, StringSplitOptions.RemoveEmptyEntries);
         var entries = new List<LogEntry>();
@@ -53,7 +55,9 @@ public sealed partial class LogParsingService
         {
             var trimmed = block.Trim();
             if (string.IsNullOrEmpty(trimmed))
+            {
                 continue;
+            }
 
             entries.Add(ParseBlock(trimmed));
         }
@@ -90,23 +94,33 @@ public sealed partial class LogParsingService
 
         var severityMatch = SeverityRegex.Match(block);
         if (severityMatch.Success)
+        {
             entry.Severity = severityMatch.Groups[1].Value;
+        }
 
         var typeMatch = TypeRegex.Match(block);
         if (typeMatch.Success)
+        {
             entry.Type = typeMatch.Groups[1].Value.Trim();
+        }
 
         var activityMatch = ActivityIdRegex.Match(block);
         if (activityMatch.Success)
+        {
             entry.ActivityId = activityMatch.Groups[1].Value.Trim();
+        }
 
         var urlMatch = UrlRegex.Match(block);
         if (urlMatch.Success)
+        {
             entry.RequestedUrl = urlMatch.Groups[1].Value.Trim();
+        }
 
         var machineMatch = MachineRegex.Match(block);
         if (machineMatch.Success)
+        {
             entry.MachineName = machineMatch.Groups[1].Value.Trim();
+        }
 
         // Extract message: first line of the block that isn't a known field
         entry.Message = ExtractMessage(block);
@@ -124,7 +138,9 @@ public sealed partial class LogParsingService
         {
             var trimmed = line.Trim();
             if (string.IsNullOrEmpty(trimmed))
+            {
                 continue;
+            }
 
             // Skip known structured field lines
             if (trimmed.StartsWith("Timestamp:", StringComparison.OrdinalIgnoreCase) ||
@@ -137,7 +153,9 @@ public sealed partial class LogParsingService
             {
                 // If it's a "Message:" line, return the value portion
                 if (trimmed.StartsWith("Message:", StringComparison.OrdinalIgnoreCase))
+                {
                     return trimmed["Message:".Length..].Trim();
+                }
 
                 continue;
             }

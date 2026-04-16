@@ -18,6 +18,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         {
             appHost.RegisterService(typeof(McpLogService));
             appHost.RegisterService(typeof(McpMetadataService));
+            appHost.RegisterService(typeof(McpContentService));
+            appHost.RegisterService(typeof(McpFormsService));
         }
     }
 }

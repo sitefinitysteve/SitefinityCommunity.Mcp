@@ -159,4 +159,177 @@ public sealed class PageToolsUnitTests
         Assert.Contains("Ensure the Sitefinity plugin is installed", result);
     }
 
+    [Fact]
+    public async Task GetPageWidgetTree_ReturnsTreeWithPlaceholders()
+    {
+        var (tools, mock) = CreateTools();
+        mock.GetPageWidgetTreeAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new PageWidgetTreeResponse
+            {
+                PageId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                PageTitle = "Home",
+                PageUrl = "/home",
+                TemplateId = "tmpl-1",
+                Placeholders =
+                [
+                    new PlaceholderNode
+                    {
+                        Name = "Content",
+                        Widgets =
+                        [
+                            new WidgetNode
+                            {
+                                Id = "w-layout",
+                                ObjectType = "Telerik.Sitefinity.Web.UI.ContentUI.LayoutControl",
+                                FriendlyName = "Layout",
+                                Caption = "grid-8+4",
+                                PlaceHolder = "Content",
+                                IsLayoutControl = true,
+                                RenderOrder = 0,
+                                Children =
+                                [
+                                    new PlaceholderNode
+                                    {
+                                        Name = "w-layout_Col00",
+                                        Widgets =
+                                        [
+                                            new WidgetNode
+                                            {
+                                                Id = "w-cb1",
+                                                FriendlyName = "ContentBlock",
+                                                PlaceHolder = "w-layout_Col00",
+                                                RenderOrder = 0,
+                                                Properties = new Dictionary<string, string> { ["Content"] = "<p>Left</p>" },
+                                            },
+                                        ],
+                                    },
+                                    new PlaceholderNode
+                                    {
+                                        Name = "w-layout_Col01",
+                                        Widgets =
+                                        [
+                                            new WidgetNode
+                                            {
+                                                Id = "w-cb2",
+                                                FriendlyName = "ContentBlock",
+                                                PlaceHolder = "w-layout_Col01",
+                                                RenderOrder = 0,
+                                                Properties = new Dictionary<string, string> { ["Content"] = "<p>Right</p>" },
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            });
+
+        var result = await tools.GetPageWidgetTree("/home");
+
+        Assert.Contains("Home", result);
+        Assert.Contains("/home", result);
+        Assert.Contains("w-layout", result);
+        Assert.Contains("w-layout_Col00", result);
+        Assert.Contains("w-layout_Col01", result);
+        Assert.Contains("Left", result);
+        Assert.Contains("Right", result);
+        Assert.Contains("\"IsLayoutControl\": true", result);
+    }
+
+    [Fact]
+    public async Task GetPageWidgetTree_MergedPropertiesLevel2Wins()
+    {
+        // The plugin does the merge; here we verify the tool passes it through faithfully.
+        var (tools, mock) = CreateTools();
+        mock.GetPageWidgetTreeAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new PageWidgetTreeResponse
+            {
+                PageId = "p",
+                Placeholders =
+                [
+                    new PlaceholderNode
+                    {
+                        Name = "Content",
+                        Widgets =
+                        [
+                            new WidgetNode
+                            {
+                                Id = "w",
+                                FriendlyName = "ContentBlock",
+                                // Level 2 already overrode Level 1 on the plugin side
+                                Properties = new Dictionary<string, string> { ["TemplateName"] = "B" },
+                            },
+                        ],
+                    },
+                ],
+            });
+
+        var result = await tools.GetPageWidgetTree("/page");
+
+        Assert.Contains("\"TemplateName\": \"B\"", result);
+        Assert.DoesNotContain("\"TemplateName\": \"A\"", result);
+    }
+
+    [Fact]
+    public async Task GetPageWidgetTree_ExcludeLayoutControls()
+    {
+        var (tools, mock) = CreateTools();
+        // When includeLayoutControls=false, the plugin flattens layout nodes.
+        mock.GetPageWidgetTreeAsync(Arg.Any<string>(), false, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new PageWidgetTreeResponse
+            {
+                Placeholders =
+                [
+                    new PlaceholderNode
+                    {
+                        Name = "Content",
+                        Widgets =
+                        [
+                            new WidgetNode
+                            {
+                                Id = "w-cb1",
+                                FriendlyName = "ContentBlock",
+                                IsLayoutControl = false,
+                                Properties = new Dictionary<string, string> { ["Content"] = "<p>Hi</p>" },
+                            },
+                        ],
+                    },
+                ],
+            });
+
+        var result = await tools.GetPageWidgetTree("/home", includeLayoutControls: false);
+
+        Assert.Contains("ContentBlock", result);
+        // No layout control emitted
+        Assert.DoesNotContain("\"IsLayoutControl\": true", result);
+    }
+
+    [Fact]
+    public async Task GetPageWidgetTree_HandlesBrokenSiblingChainWarning()
+    {
+        var (tools, mock) = CreateTools();
+        mock.GetPageWidgetTreeAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new PageWidgetTreeResponse
+            {
+                Warnings = ["Broken sibling chain detected in placeholder 'Content' — appended 2 unreached widget(s) in ORM order."],
+            });
+
+        var result = await tools.GetPageWidgetTree("/home");
+
+        Assert.Contains("Broken sibling chain", result);
+    }
+
+    [Fact]
+    public async Task GetPageWidgetTree_HandlesHttpError()
+    {
+        var (tools, mock) = CreateTools();
+        mock.GetPageWidgetTreeAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
+
+        var result = await tools.GetPageWidgetTree("/missing");
+
+        Assert.Contains("Error:", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+    }
 }

@@ -15,7 +15,13 @@ SitefinityCommunity.Mcp/
 ├── CLAUDE.md                          ← You are here
 ├── README.md                          ← User-facing docs
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
+├── install-skills.ps1                 ← Interactive installer: Claude/Cursor/Codex/Copilot (project or global)
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
+├── skills/                            ← Claude Code skills (installable via install-skills.ps1)
+│   ├── sitefinity-widget-expert/
+│   │   └── SKILL.md                  ← MVC widget development guidance
+│   └── sitefinity-page-inspector/
+│       └── SKILL.md                  ← Page/widget inspection guidance
 ├── tests/
 │   ├── test-config.example.json       ← Template (committed)
 │   ├── test-config.json               ← Your dev config (gitignored)
@@ -47,7 +53,12 @@ SitefinityCommunity.Mcp/
     │   │   ├── DynamicFieldInfo.cs    ← Dynamic type field definition
     │   │   ├── RoutesResponse.cs    ← Page routes, API routes, OData routes
     │   │   ├── PageDetailsResponse.cs  ← Page details + PageWidgetInfo with Settings
-    │   │   └── WidgetPropertiesResponse.cs ← Single widget full properties response
+    │   │   ├── WidgetPropertiesResponse.cs ← Single widget full properties response
+    │   │   ├── PageWidgetTreeResponse.cs ← Widget tree in render order + nested placeholders
+    │   │   ├── ContentItemInfo.cs / ContentListResponse.cs ← Live content queries
+    │   │   ├── PageTemplateInfo.cs / TemplatesResponse.cs ← Page templates
+    │   │   ├── TaxonomyInfo.cs / TaxonInfo.cs / TaxonomiesResponse.cs ← Classifications
+    │   │   ├── FormInfo.cs / FormFieldInfo.cs / FormResponseInfo.cs ← Forms + submissions
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -62,19 +73,24 @@ SitefinityCommunity.Mcp/
     │   │   ├── ApiKeyValidationService.cs ← Validates API keys via /RestApi/mcp/ping
     │   │   ├── ISitefinityMetadataService.cs ← Interface for metadata operations
     │   │   └── SitefinityMetadataService.cs  ← HTTP client for metadata endpoints
-    │   └── Tools/                     ← MCP TOOLS (auto-discovered)
-    │       ├── LogTools.cs            ← read_error_log, read_trace_log, list_log_files, etc.
-    │       ├── EnvironmentTools.cs    ← list_environments, set_default_environment
-    │       ├── SitefinityStatusTools.cs ← check_status
-    │       ├── SitefinityInfoTools.cs ← get_site_info, list_modules
-    │       ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
-    │       ├── RouteTools.cs          ← list_page_routes, list_api_routes
-│       └── PageTools.cs           ← get_page_details, get_widget_properties
-│   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
-│   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
-│   └── Docs/                      ← Embedded resource files
-│       └── WidgetDesignerAttributes.md ← Sitefinity widget attribute reference
-    │       └── PageTools.cs           ← get_page_details, get_widget_properties
+    │   ├── Security/
+    │   │   └── SecretRedactor.cs      ← Deny-list + pattern scanner for secrets
+    │   ├── Tools/                     ← MCP TOOLS (auto-discovered)
+    │   │   ├── LogTools.cs            ← read_error_log, read_trace_log, list_log_files, etc.
+    │   │   ├── EnvironmentTools.cs    ← list_environments, set_default_environment
+    │   │   ├── SitefinityStatusTools.cs ← check_status
+    │   │   ├── SitefinityInfoTools.cs ← get_site_info, list_modules
+    │   │   ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields, get_module_structure
+    │   │   ├── RouteTools.cs          ← list_page_routes, list_api_routes
+    │   │   ├── PageTools.cs           ← get_page_details, get_widget_properties, get_page_widget_tree
+    │   │   ├── ContentTools.cs        ← list_content
+    │   │   ├── TemplateTools.cs       ← list_templates
+    │   │   ├── TaxonomyTools.cs       ← list_taxonomies
+    │   │   └── FormTools.cs           ← list_forms, get_form_fields, list_form_responses
+    │   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
+    │   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
+    │   └── Docs/                      ← Embedded resource files
+    │       └── WidgetDesignerAttributes.md ← Sitefinity widget attribute reference
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
         ├── McpInit.cs                 ← Registration (checks Enabled + ApiKey before registering)
@@ -83,7 +99,10 @@ SitefinityCommunity.Mcp/
         ├── McpServicePlugin.cs        ← ServiceStack plugin registration
         ├── McpLogRequest.cs           ← Request/response DTOs (logs + metadata)
         ├── McpLogService.cs           ← ServiceStack service handlers (logs)
-        ├── McpMetadataService.cs      ← ServiceStack service handlers (site info, modules, types)
+        ├── McpMetadataService.cs      ← ServiceStack service handlers (site info, modules, types, widget tree, templates, taxonomies)
+        ├── McpContentService.cs       ← ServiceStack service handler (live content queries)
+        ├── McpFormsService.cs         ← ServiceStack service handlers (forms + responses)
+        ├── McpSecretRedactor.cs       ← .NET 4.8 mirror of SecretRedactor (scrubs forms/widgets)
         └── README.md                  ← Plugin installation guide
 ```
 
@@ -277,6 +296,21 @@ Sitefinity bundles pinned versions of ServiceStack, Newtonsoft.Json, etc. that c
 
 Sitefinity logs use a format where entries are separated by 40-dash lines (`----------------------------------------`). The `LogParsingService` uses source-generated regexes to extract structured fields (timestamp, severity, type, URL, stack trace, etc.) from the raw text blocks.
 
+### Secret Redaction (Defense in Depth)
+
+Everything this MCP returns lands in an LLM context window, which may be logged, cached, or transmitted to third-party model providers. Two mirrored redaction classes enforce scrubbing before text leaves either side:
+
+- **MCP server side** — `Security/SecretRedactor.cs` (.NET 10, source-generated regex). Wired into `LocalLogProvider.ReadFileAsync` + `SearchAsync` so filesystem log reads are scrubbed before parsing.
+- **Plugin side** — `McpSecretRedactor.cs` (.NET 4.8, compiled regex). Wired into `McpFormsService` (field names + values) and planned for `McpMetadataService` widget properties.
+
+Redaction has two layers:
+1. **Field-name deny-list** — exact matches (`password`, `apikey`, `token`, `authorization`, …) and substring fragments (`*secret*`, `*password*`) replace the whole value with `[REDACTED]`.
+2. **Value-pattern scanner** — regex matches for JWTs, bearer headers, AWS/GitHub/Slack/OpenAI tokens, Azure storage keys, connection-string passwords, App Insights instrumentation keys.
+
+**Opt-in raw mode:** `allowRawSecrets: true` in a per-environment config block disables redaction for that environment. Environments named `prod` / `production` ignore the flag and always redact (misconfiguration guard). `LogProviderFactory` threads the flag into `LocalLogProvider` via `config.EffectiveAllowRawSecrets(name)`.
+
+**Important:** any new tool returning user-authored content (widget properties, content fields, form submissions, logs) must route string values through the redactor on the side closest to the data source.
+
 ## Available Services (for DI)
 
 | Interface | Implementation | Purpose |
@@ -306,11 +340,19 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/modules` | GET | All installed modules with type, status, startup type |
 | `/mcp/dynamic-types` | GET | All Module Builder types grouped by module |
 | `/mcp/dynamic-types/{TypeFullName}/fields` | GET | Fields for a specific dynamic type |
+| `/mcp/modules/{ModuleName}/structure` | GET | Full module tree: nested parent/child types with fields + CLR type hints (POCO-ready) |
 | `/mcp/routes` | GET | Combined page + API routes (backward compat) |
 | `/mcp/page-routes` | GET | CMS page routes with URL evaluation warnings |
 | `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
 | `/mcp/page-details` | GET | Full page details with widgets and properties (Level 1 + Level 2 Settings) |
 | `/mcp/widgets/{WidgetId}/properties` | GET | Full widget properties with both Level 1 and Level 2 Settings children (requires `PageIdentifier` query param) |
+| `/mcp/page-widget-tree` | GET | Widget tree in render order, nested placeholders, merged L1+L2 props (requires `PageIdentifier`; optional `IncludeLayoutControls`) |
+| `/mcp/content` | GET | List content items of a given type (requires `TypeFullName`; optional `Take`, `Skip`) |
+| `/mcp/templates` | GET | List page templates (MVC + WebForms) |
+| `/mcp/taxonomies` | GET | List classifications with top-level taxa |
+| `/mcp/forms` | GET | List all forms with metadata counts |
+| `/mcp/forms/{FormIdentifier}/fields` | GET | Field definitions for a form. Optional `Debug=true` to include a raw Properties/ChildProperties tree dump for diagnosing empty Name/Title on unfamiliar Sitefinity versions |
+| `/mcp/forms/{FormIdentifier}/responses` | GET | Paged form submissions (secret-redacted). Optional `SearchTerm` filters to entries where any field value (or IP / UserAgent) contains the term (case-insensitive; matching runs **after** redaction so sensitive values cannot leak via search). Response includes `TotalCount` (all entries), `MatchedCount` (after filter), and echoes `SearchTerm` |
 
 ## Coding Conventions
 
@@ -318,6 +360,10 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 - **Properties at bottom** — Class organization: constructor, methods, properties
 - **File-scoped namespaces** — Use `namespace X;` not `namespace X { }`
 - **Primary constructors** — Prefer primary constructors for tool classes with simple DI
+- **Readable control flow** — Do not compress `if`, `else`, `catch`, `for`, `foreach`, or `while` bodies onto one line
+- **Braces required** — Always use braces for control-flow blocks, even for single-statement guards
+- **Whitespace around conditionals** — Leave a blank line above and below standalone `if` blocks when it improves scanning and keeps guard clauses from feeling packed together
+- **Keep simple calls compact** — Do not split ordinary function or method argument lists across multiple lines unless the call is genuinely long or hard to scan
 - **Nullable enabled** — Project has `<Nullable>enable</Nullable>`
 - **No manual JSON serialization** — Use `System.Text.Json` with source generators where applicable
 - **Target framework** — .NET 10 (`net10.0`)

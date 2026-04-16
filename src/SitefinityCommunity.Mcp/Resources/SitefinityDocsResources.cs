@@ -4,9 +4,15 @@ using ModelContextProtocol.Server;
 
 namespace SitefinityCommunity.Mcp.Resources;
 
+/// <summary>
+/// MCP resources that expose static Sitefinity reference documentation embedded in the assembly.
+/// Currently provides the widget designer attributes reference, which Claude Code reads when
+/// building or modifying widget property editors.
+/// </summary>
 [McpServerResourceType]
 public sealed class SitefinityDocsResources
 {
+    // Lazy-load + cache the embedded markdown so subsequent reads skip the stream/reader overhead.
     private static readonly Lazy<string> WidgetDesignerAttributesContent = new(() =>
     {
         var assembly = Assembly.GetExecutingAssembly();

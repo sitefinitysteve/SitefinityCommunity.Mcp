@@ -5,6 +5,10 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tools that surface high-level Sitefinity instance metadata: version, configured languages,
+/// multisite sites, and the list of installed modules.
+/// </summary>
 [McpServerToolType]
 public sealed class SitefinityInfoTools
 {
@@ -75,7 +79,9 @@ public sealed class SitefinityInfoTools
             var modules = await this._metadataService.ListModulesAsync(environment, ct);
 
             if (modules.Count == 0)
+            {
                 return "No modules found.";
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {modules.Count} module(s):");

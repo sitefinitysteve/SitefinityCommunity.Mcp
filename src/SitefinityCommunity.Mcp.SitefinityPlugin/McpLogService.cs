@@ -29,7 +29,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public List<McpLogFileInfo> Get(ListLogFiles request)
         {
             if (!Directory.Exists(LogsPath))
+            {
                 return new List<McpLogFileInfo>();
+            }
 
             var dir = new DirectoryInfo(LogsPath);
             return dir.GetFiles("*.log")
@@ -52,7 +54,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             var filePath = Path.Combine(LogsPath, request.FileName);
             if (!File.Exists(filePath))
+            {
                 throw HttpError.NotFound("Log file not found: " + request.FileName);
+            }
 
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             using (var reader = new StreamReader(stream))
@@ -81,14 +85,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public List<McpSearchResult> Post(SearchLogs request)
         {
             if (string.IsNullOrEmpty(request.Pattern))
+            {
                 throw HttpError.BadRequest("Pattern is required.");
+            }
 
             if (!Directory.Exists(LogsPath))
+            {
                 return new List<McpSearchResult>();
+            }
 
             var regexOptions = RegexOptions.Compiled;
             if (!request.CaseSensitive)
+            {
                 regexOptions |= RegexOptions.IgnoreCase;
+            }
 
             var regex = new Regex(request.Pattern, regexOptions, TimeSpan.FromSeconds(5));
             var contextLines = Math.Max(0, Math.Min(request.ContextLines, 10));
@@ -127,7 +137,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         {
             var errorLogPath = Path.Combine(LogsPath, "Error.log");
             if (!File.Exists(errorLogPath))
+            {
                 return "No Error.log found.";
+            }
 
             using (var stream = new FileStream(errorLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             using (var reader = new StreamReader(stream))
@@ -141,7 +153,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 {
                     var trimmed = blocks[i].Trim();
                     if (!string.IsNullOrEmpty(trimmed))
+                    {
                         return trimmed;
+                    }
                 }
 
                 return "Error.log is empty.";
@@ -163,7 +177,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 for (var i = 0; i < allLines.Count; i++)
                 {
                     if (!regex.IsMatch(allLines[i]))
+                    {
                         continue;
+                    }
 
                     var result = new McpSearchResult
                     {
@@ -173,10 +189,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     };
 
                     for (var j = Math.Max(0, i - contextLines); j < i; j++)
+                    {
                         result.ContextBefore.Add(allLines[j]);
+                    }
 
                     for (var j = i + 1; j <= Math.Min(allLines.Count - 1, i + contextLines); j++)
+                    {
                         result.ContextAfter.Add(allLines[j]);
+                    }
 
                     results.Add(result);
                 }
@@ -189,10 +209,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         private static void ValidateFileName(string fileName)
         {
             if (string.IsNullOrWhiteSpace(fileName))
+            {
                 throw HttpError.BadRequest("File name cannot be empty.");
+            }
 
             if (fileName.Contains("..") || fileName.Contains("/") || fileName.Contains("\\") || Path.IsPathRooted(fileName))
+            {
                 throw HttpError.BadRequest("Invalid file name. Path traversal is not allowed.");
+            }
         }
     }
 }

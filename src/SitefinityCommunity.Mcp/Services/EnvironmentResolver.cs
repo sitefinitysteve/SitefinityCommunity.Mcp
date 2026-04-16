@@ -2,6 +2,11 @@ using SitefinityCommunity.Mcp.Configuration;
 
 namespace SitefinityCommunity.Mcp.Services;
 
+/// <summary>
+/// Default <see cref="IEnvironmentResolver"/>. Resolves environments by name from the loaded
+/// <see cref="SitefinityMcpConfig"/> and tracks the active default (mutable for the lifetime of
+/// the process; a lock guards the default-name read/write).
+/// </summary>
 public sealed class EnvironmentResolver : IEnvironmentResolver
 {
     private readonly SitefinityMcpConfig _options;
@@ -16,7 +21,13 @@ public sealed class EnvironmentResolver : IEnvironmentResolver
 
     public string DefaultEnvironment
     {
-        get { lock (this._lock) return this._defaultEnvironment; }
+        get
+        {
+            lock (this._lock)
+            {
+                return this._defaultEnvironment;
+            }
+        }
     }
 
     public (string Name, EnvironmentConfig Config) Resolve(string? environmentName = null)
@@ -36,12 +47,15 @@ public sealed class EnvironmentResolver : IEnvironmentResolver
     public bool SetDefault(string environmentName)
     {
         if (!this._options.Environments.ContainsKey(environmentName))
+        {
             return false;
+        }
 
         lock (this._lock)
         {
             this._defaultEnvironment = environmentName;
         }
+
         return true;
     }
 

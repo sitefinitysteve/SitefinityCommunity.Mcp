@@ -5,6 +5,10 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tools for listing Sitefinity routes: frontend CMS page URLs (including 301-redirect aliases)
+/// and backend ServiceStack / OData API routes.
+/// </summary>
 [McpServerToolType]
 public sealed class RouteTools
 {
@@ -16,7 +20,7 @@ public sealed class RouteTools
     }
 
     [McpServerTool(Name = "sitefinity_list_page_routes", ReadOnly = true)]
-    [Description("List all CMS page routes with URL evaluation warnings. Use this to audit site structure and detect pages with dynamic URL routing.")]
+    [Description("List all CMS frontend page routes. Returns a compact markdown list of each published page with its URL, title, and any legacy URLs that redirect to it.")]
     public async Task<string> ListPageRoutes(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
         CancellationToken ct = default)
@@ -27,38 +31,40 @@ public sealed class RouteTools
 
             var sb = new StringBuilder();
 
-            // ── Page Routes ──
-            sb.AppendLine($"── Page Routes ({result.PageRoutes.Count}) ──");
+            sb.AppendLine($"# Page Routes ({result.PageRoutes.Count})");
+            sb.AppendLine();
+
             if (result.PageRoutes.Count == 0)
             {
-                sb.AppendLine("  (none)");
+                sb.AppendLine("_No pages found._");
             }
             else
             {
                 foreach (var page in result.PageRoutes)
                 {
-                    var status = page.IsPublished ? "Published" : "Draft";
-                    var evalWarning = page.HasUrlEvaluation
-                        ? $" \u26a0 URL eval: {page.UrlEvaluationMode}"
-                        : "";
+                    var url = StripHost(page.Url);
+                    var title = string.IsNullOrEmpty(page.Title) ? "(untitled)" : page.Title;
 
-                    sb.AppendLine($"  {page.Url,-40} {page.Title} ({page.NodeType}, {status}){evalWarning}");
+                    if (page.AdditionalUrls.Count > 0)
+                    {
+                        // Inline alternates — cheaper than a line each on pages with many redirects
+                        var alts = string.Join(", ", page.AdditionalUrls.Select(StripHost));
+                        sb.AppendLine($"- `{url}` — {title} _(redirects: {alts})_");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"- `{url}` — {title}");
+                    }
                 }
             }
 
-            sb.AppendLine();
-
-            // ── Warnings ──
-            sb.AppendLine($"── Warnings ({result.Warnings.Count}) ──");
-            if (result.Warnings.Count == 0)
+            if (result.Warnings.Count > 0)
             {
-                sb.AppendLine("  No issues detected.");
-            }
-            else
-            {
+                sb.AppendLine();
+                sb.AppendLine($"## Warnings ({result.Warnings.Count})");
                 foreach (var warning in result.Warnings)
                 {
-                    sb.AppendLine($"  \u26a0 {warning}");
+                    sb.AppendLine($"- \u26a0 {warning}");
                 }
             }
 
@@ -72,6 +78,35 @@ public sealed class RouteTools
         {
             return $"Error listing page routes: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Defensively strip absolute URL prefixes (scheme + host) so only the path+query remains.
+    /// Sitefinity mostly returns relative paths, but some multisite / canonical-url configs
+    /// can surface fully-qualified URLs that bloat the output.
+    /// </summary>
+    private static string StripHost(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            return url;
+        }
+
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var uri = new Uri(url);
+                return uri.PathAndQuery;
+            }
+            catch
+            {
+                // fall through
+            }
+        }
+
+        return url;
     }
 
     [McpServerTool(Name = "sitefinity_list_api_routes", ReadOnly = true)]

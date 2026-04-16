@@ -11,8 +11,16 @@ public interface ISitefinityMetadataService
     Task<IReadOnlyList<ModuleInfo>> ListModulesAsync(string? environment = null, CancellationToken ct = default);
     Task<IReadOnlyList<DynamicTypeInfo>> ListDynamicTypesAsync(string? environment = null, CancellationToken ct = default);
     Task<IReadOnlyList<DynamicFieldInfo>> GetTypeFieldsAsync(string typeFullName, string? environment = null, CancellationToken ct = default);
+    Task<ModuleStructureResponse> GetModuleStructureAsync(string moduleName, string? environment = null, CancellationToken ct = default);
     Task<PageRoutesResponse> ListPageRoutesAsync(string? environment = null, CancellationToken ct = default);
     Task<ApiRoutesResponse> ListApiRoutesAsync(string? environment = null, CancellationToken ct = default);
     Task<PageDetailsResponse> GetPageDetailsAsync(string pageIdentifier, string? environment = null, CancellationToken ct = default);
     Task<WidgetPropertiesResponse> GetWidgetPropertiesAsync(string widgetId, string pageIdentifier, string? environment = null, CancellationToken ct = default);
+    Task<ContentListResponse> ListContentAsync(string typeFullName, int take, int skip, string? environment = null, CancellationToken ct = default);
+    Task<TemplatesResponse> ListTemplatesAsync(string? environment = null, CancellationToken ct = default);
+    Task<TaxonomiesResponse> ListTaxonomiesAsync(string? environment = null, CancellationToken ct = default);
+    Task<PageWidgetTreeResponse> GetPageWidgetTreeAsync(string pageIdentifier, bool includeLayoutControls, string? environment = null, CancellationToken ct = default);
+    Task<FormsResponse> ListFormsAsync(string? environment = null, CancellationToken ct = default);
+    Task<FormFieldsResponse> GetFormFieldsAsync(string formIdentifier, bool debug = false, string? environment = null, CancellationToken ct = default);
+    Task<FormResponsesResponse> ListFormResponsesAsync(string formIdentifier, int take, int skip, string? searchTerm = null, string? environment = null, CancellationToken ct = default);
 }

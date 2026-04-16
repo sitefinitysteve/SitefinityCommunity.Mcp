@@ -5,6 +5,11 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tools for reading and searching Sitefinity log files. The concrete log provider
+/// (filesystem vs HTTP) is picked per-environment via <see cref="ILogProviderFactory"/>.
+/// Parsed entries come from <see cref="LogParsingService"/>.
+/// </summary>
 [McpServerToolType]
 public sealed class LogTools
 {
@@ -51,7 +56,9 @@ public sealed class LogTools
             var files = await provider.ListFilesAsync(ct);
 
             if (files.Count == 0)
+            {
                 return "No log files found.";
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {files.Count} log file(s):");
@@ -98,7 +105,9 @@ public sealed class LogTools
             var results = await provider.SearchAsync(pattern, contextLines, caseSensitive, ct);
 
             if (results.Count == 0)
+            {
                 return $"No matches found for pattern: {pattern}";
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {results.Count} match(es) for '{pattern}':");
@@ -111,7 +120,9 @@ public sealed class LogTools
             }
 
             if (results.Count > 100)
+            {
                 sb.AppendLine($"... and {results.Count - 100} more matches (showing first 100)");
+            }
 
             return sb.ToString();
         }
@@ -134,7 +145,9 @@ public sealed class LogTools
 
             var entries = this._logParser.GetLastEntries(content, 1);
             if (entries.Count == 0)
+            {
                 return "No errors found in Error.log.";
+            }
 
             var entry = entries[0];
             var sb = new StringBuilder();
@@ -142,18 +155,31 @@ public sealed class LogTools
             sb.AppendLine();
 
             if (entry.Timestamp.HasValue)
+            {
                 sb.AppendLine($"Time:     {entry.Timestamp:yyyy-MM-dd HH:mm:ss}");
+            }
+
             if (!string.IsNullOrEmpty(entry.Severity))
+            {
                 sb.AppendLine($"Severity: {entry.Severity}");
+            }
+
             if (!string.IsNullOrEmpty(entry.Type))
+            {
                 sb.AppendLine($"Type:     {entry.Type}");
+            }
 
             sb.AppendLine($"Message:  {entry.Message}");
 
             if (!string.IsNullOrEmpty(entry.RequestedUrl))
+            {
                 sb.AppendLine($"URL:      {entry.RequestedUrl}");
+            }
+
             if (!string.IsNullOrEmpty(entry.MachineName))
+            {
                 sb.AppendLine($"Machine:  {entry.MachineName}");
+            }
 
             if (!string.IsNullOrEmpty(entry.StackTrace))
             {
@@ -183,7 +209,9 @@ public sealed class LogTools
 
             var entries = this._logParser.GetLastEntries(content, count);
             if (entries.Count == 0)
+            {
                 return $"No entries found in {fileName}.";
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine($"Last {entries.Count} entries from {fileName}:");

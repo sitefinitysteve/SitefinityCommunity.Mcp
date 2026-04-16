@@ -5,6 +5,10 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tool for checking whether a Sitefinity instance is bootstrapped and reachable. Delegates
+/// to <see cref="ISitefinityStatusService"/>, optionally polling until ready.
+/// </summary>
 [McpServerToolType]
 public sealed class SitefinityStatusTools
 {

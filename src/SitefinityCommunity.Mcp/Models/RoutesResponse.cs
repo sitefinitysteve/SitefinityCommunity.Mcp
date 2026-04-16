@@ -7,6 +7,8 @@ public sealed class PageRoute
 {
     public string Title { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public List<string> AdditionalUrls { get; set; } = [];
     public string NodeType { get; set; } = string.Empty;
     public bool IsPublished { get; set; }
     public int Depth { get; set; }

@@ -166,6 +166,38 @@ Ask Claude: *"Check if Sitefinity is running"* — it will call `sitefinity_chec
 - **Sitefinity unreachable** — tools proceed with a warning (so you can still read local logs when debugging a down server)
 - **Blank keys** — rejected on both sides (MCP server won't start; Sitefinity won't register endpoints)
 
+### Step 8 (optional) — Install the Sitefinity skills
+
+The repo ships curated skills that teach AI agents how to think about Sitefinity widgets and page composition. Skills are installable into Claude Code, Cursor, Codex, and GitHub Copilot.
+
+Run the installer and it walks you through two choices: scope (project or global) and which agents to install into (detected ones are pre-selected).
+
+```powershell
+# Interactive — prompts for scope and agents
+.\install-skills.ps1
+
+# Non-interactive / CI
+.\install-skills.ps1 -Scope project -Target "C:\Proj" -Agents claude,cursor -Force
+.\install-skills.ps1 -Scope global  -Agents claude -Force
+```
+
+**How it installs:** a canonical copy goes to `<root>/.agents/skills/<name>/`, then each selected agent's skills directory gets a symlink back to the canonical copy. Update the canonical copy once and every agent sees it.
+
+Per-agent paths:
+
+| Agent | Skills directory |
+|---|---|
+| Claude Code | `.claude/skills/` |
+| Cursor | `.cursor/skills/` |
+| Codex | `.codex/skills/` |
+| GitHub Copilot | `.github/copilot/skills/` |
+
+**Windows note:** creating directory symlinks needs Developer Mode (Settings → System → For developers) or an admin shell. If symlinks are unavailable the installer falls back to plain copies automatically — updates just won't auto-propagate.
+
+Currently bundled:
+- **sitefinity-widget-expert** — MVC widget development, designer attributes, view conventions, JSON persistence
+- **sitefinity-page-inspector** — Walks the MCP tools needed to inspect a page's widgets and their configured properties
+
 ---
 
 ## Available Tools
@@ -189,6 +221,13 @@ Ask Claude: *"Check if Sitefinity is running"* — it will call `sitefinity_chec
 | `sitefinity_list_api_routes` | ServiceStack REST API routes and OData entity sets |
 | `sitefinity_get_page_details` | Full page detail by ID, URL path, slug, or title. Returns page metadata, template name, and every widget on the page with its configured properties (including Level 2 Settings children) |
 | `sitefinity_get_widget_properties` | Full property details for a single widget by GUID + page identifier. Returns both Level 1 properties and Level 2 Settings children (designer field values, content, etc.) with higher truncation limits |
+| `sitefinity_get_page_widget_tree` | Page composition as a placeholder tree in sibling render order. Layout controls own nested `_Col00/_Col01` child placeholders; widget Properties is a merged Level 1 + Level 2 view (Level 2 wins). Empty columns are pre-created from layout captions so structure is visible |
+| `sitefinity_list_content` | Paged live content items for any Sitefinity type (News, Blog, Module Builder types, etc.). Returns Id, Title, UrlName, Status, DateCreated, LastModified so widgets can reference real content Ids |
+| `sitefinity_list_templates` | All CMS page templates — Id, Name, Framework (MVC/WebForms), ParentTemplateId, Culture |
+| `sitefinity_list_taxonomies` | All classifications (Categories, Tags, custom) plus a sample of top-level taxa keyed by taxonomy Id |
+| `sitefinity_list_forms` | All Sitefinity forms with field count and submission count |
+| `sitefinity_get_form_fields` | Field definitions for a given form — returns the **developer Name** (the `FieldName` the Sitefinity API uses for entry values, e.g. `FormTextBox_C001`), Title, FieldType, IsRequired, and Choices. Pass `debug=true` to also dump the raw Properties/ChildProperties tree (useful when Name/Title come back empty on an unfamiliar Sitefinity version) |
+| `sitefinity_list_form_responses` | Form submissions, newest-first, with an optional case-insensitive `searchTerm` that filters entries by any field value (or IP / UserAgent). Sensitive-named field values (password/secret/apiKey/token/...) are redacted **before** search matching so sensitive values cannot leak via search |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -205,6 +244,30 @@ The page tools give your AI assistant visibility into Sitefinity's CMS page stru
 - **Page title** — `Our Team` (exact match preferred, partial match with warning)
 
 **`sitefinity_get_widget_properties`** — Returns full property details for a single widget by its GUID and the page it's on (both from `sitefinity_get_page_details` results). Returns both Level 1 properties (ControllerName, ID, Settings) and Level 2 Settings children (SharedContentID, ProviderName, Model JSON, etc.) with higher truncation limits than the page-level view. Use this when you need to inspect the actual configured values of a specific widget.
+
+**`sitefinity_get_page_widget_tree`** — The full page *composition*: every widget on the page returned as a placeholder tree in sibling render order. Layout controls own child placeholders named `{ControlId}_Col00`, `_Col01`, … — their internal columns nest as child `Placeholders` on the layout `WidgetNode`. Each widget's `Properties` is a *merged* view of Level 1 (ORM) + Level 2 (Settings children), with Level 2 winning on conflict (what the widget designer actually saved). Empty columns are pre-created from the layout's `grid-8+4` caption so the LLM can see intended structure. Pass `includeLayoutControls=false` to flatten layout nodes.
+
+### Live Content Queries
+
+These three tools give the LLM direct visibility into real content, templates, and classifications so it can generate widget configs and code against *actual* Ids — not placeholder strings.
+
+**`sitefinity_list_content`** — Paged list of live content items for any type full name (e.g., `Telerik.Sitefinity.News.Model.NewsItem` or a Module Builder dynamic type). Returns Id, Title, UrlName, Status, DateCreated, LastModified. Use `sitefinity_list_dynamic_types` first to discover available type names.
+
+**`sitefinity_list_templates`** — Every page template (MVC and WebForms), including template Id, parent template, and culture. Handy when generating a new page definition that needs to pin to a real template.
+
+**`sitefinity_list_taxonomies`** — Every classification (Categories, Tags, and any custom ones) plus a sample of top-level taxa keyed by taxonomy Id. So a widget configured with category/tag filters can reference the real taxon Ids.
+
+### Forms & Submissions
+
+**`sitefinity_list_forms`** — All Sitefinity forms with their field count and submission count.
+
+**`sitefinity_get_form_fields`** — Field definitions for one form (by Id or Name). Returns each field's **developer name** (the `FieldName` the Sitefinity API uses when reading entry values — e.g. `FormTextBox_C001`), its display Title, FieldType, IsRequired flag, and Choices (for dropdowns/radios). Pass `debug=true` to additionally return a raw Properties/ChildProperties tree dump — useful for diagnosing empty `Name`/`Title` on unfamiliar Sitefinity versions where the metadata lives at a different path under the control's Settings tree.
+
+**`sitefinity_list_form_responses`** — Form submissions for a form, ordered newest-first. Pass `searchTerm` to return only entries where any field value (or `IpAddress` / `UserAgent`) contains the term (case-insensitive substring). The response includes `TotalCount` (all entries on the form), `MatchedCount` (entries after the search filter), and echoes the `SearchTerm` you sent. Use `take`/`skip` to page through the matched set. Any field whose name looks sensitive (`Password`, `ApiKey`, `Secret`, `Token`, …) is scrubbed **before** leaving Sitefinity *and before* search matching runs, so sensitive values can never leak via a crafted search term.
+
+### Secret Redaction
+
+Every string returned by log tools, widget tools, form response tools, and list_content flows through a deny-list + pattern scanner. Values keyed by `Password`, `ApiKey`, `Secret`, etc. become `[REDACTED]`; embedded JWTs, AWS keys, GitHub PATs, Slack tokens, OpenAI keys, Azure connection strings, and `Password=...` connection-string fragments are replaced with `[REDACTED:<kind>]` tags. For dev debugging you can set `"allowRawSecrets": true` on a non-prod environment in `sitefinity-mcp.json` — environments whose name starts with `prod` always redact regardless.
 
 ---
 

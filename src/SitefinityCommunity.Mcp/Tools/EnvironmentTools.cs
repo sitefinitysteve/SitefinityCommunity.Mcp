@@ -5,6 +5,11 @@ using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
 
+/// <summary>
+/// MCP tools for discovering configured environments and switching the active default.
+/// These are local-only (operate on the in-memory <see cref="IEnvironmentResolver"/>) and do
+/// not require Sitefinity to be reachable.
+/// </summary>
 [McpServerToolType]
 public sealed class EnvironmentTools
 {
@@ -47,7 +52,9 @@ public sealed class EnvironmentTools
         [Description("The environment name to set as default (e.g., 'dev', 'staging', 'prod')")] string environment)
     {
         if (string.IsNullOrWhiteSpace(environment))
+        {
             return "Error: environment name cannot be empty.";
+        }
 
         if (this._resolver.SetDefault(environment))
         {

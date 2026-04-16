@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using SitefinityCommunity.Mcp.Models;
+using SitefinityCommunity.Mcp.Security;
 
 namespace SitefinityCommunity.Mcp.Services;
 
@@ -10,11 +11,13 @@ namespace SitefinityCommunity.Mcp.Services;
 public sealed class LocalLogProvider : ILogProvider
 {
     private readonly string _logsPath;
+    private readonly bool _allowRawSecrets;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(5);
 
-    public LocalLogProvider(string logsPath)
+    public LocalLogProvider(string logsPath, bool allowRawSecrets = false)
     {
         this._logsPath = logsPath;
+        this._allowRawSecrets = allowRawSecrets;
 
         if (!Directory.Exists(logsPath))
         {
@@ -45,14 +48,17 @@ public sealed class LocalLogProvider : ILogProvider
         var filePath = Path.Combine(this._logsPath, fileName);
 
         if (!File.Exists(filePath))
+        {
             throw new FileNotFoundException($"Log file not found: {fileName}");
+        }
 
         try
         {
             // Use FileShare.ReadWrite since Sitefinity may be writing concurrently
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
-            return await reader.ReadToEndAsync(ct);
+            var content = await reader.ReadToEndAsync(ct);
+            return this._allowRawSecrets ? content : SecretRedactor.Redact(content);
         }
         catch (IOException ex)
         {
@@ -68,7 +74,9 @@ public sealed class LocalLogProvider : ILogProvider
 
         var regexOptions = RegexOptions.Compiled;
         if (!caseSensitive)
+        {
             regexOptions |= RegexOptions.IgnoreCase;
+        }
 
         var regex = new Regex(pattern, regexOptions, RegexTimeout);
 
@@ -76,11 +84,31 @@ public sealed class LocalLogProvider : ILogProvider
         var tasks = logFiles.Select(file => Task.Run(() => SearchFile(file, regex, contextLines, ct), ct));
         var results = await Task.WhenAll(tasks);
 
-        return results
+        var flat = results
             .SelectMany(r => r)
             .OrderByDescending(r => r.FileName)
             .ThenBy(r => r.LineNumber)
             .ToList();
+
+        if (!this._allowRawSecrets)
+        {
+            foreach (var r in flat)
+            {
+                r.MatchedLine = SecretRedactor.Redact(r.MatchedLine);
+
+                for (var i = 0; i < r.ContextBefore.Count; i++)
+                {
+                    r.ContextBefore[i] = SecretRedactor.Redact(r.ContextBefore[i]);
+                }
+
+                for (var i = 0; i < r.ContextAfter.Count; i++)
+                {
+                    r.ContextAfter[i] = SecretRedactor.Redact(r.ContextAfter[i]);
+                }
+            }
+        }
+
+        return flat;
     }
 
     private static List<LogSearchResult> SearchFile(
@@ -107,7 +135,9 @@ public sealed class LocalLogProvider : ILogProvider
                 ct.ThrowIfCancellationRequested();
 
                 if (!regex.IsMatch(allLines[i]))
+                {
                     continue;
+                }
 
                 var result = new LogSearchResult
                 {
@@ -118,11 +148,15 @@ public sealed class LocalLogProvider : ILogProvider
 
                 // Context before
                 for (var j = Math.Max(0, i - contextLines); j < i; j++)
+                {
                     result.ContextBefore.Add(allLines[j]);
+                }
 
                 // Context after
                 for (var j = i + 1; j <= Math.Min(allLines.Count - 1, i + contextLines); j++)
+                {
                     result.ContextAfter.Add(allLines[j]);
+                }
 
                 results.Add(result);
             }
@@ -141,7 +175,9 @@ public sealed class LocalLogProvider : ILogProvider
     private static void ValidateFileName(string fileName)
     {
         if (string.IsNullOrWhiteSpace(fileName))
+        {
             throw new ArgumentException("File name cannot be empty.");
+        }
 
         if (fileName.Contains("..") ||
             fileName.Contains('/') ||

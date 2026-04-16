@@ -34,7 +34,7 @@ public sealed class RemoteLogProvider : ILogProvider
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
-        var files = await response.Content.ReadFromJsonAsync<List<LogFileInfo>>(ct)
+        var files = await response.Content.ReadFromJsonAsync<List<LogFileInfo>>(SitefinityJsonOptions.Default, ct)
             ?? new List<LogFileInfo>();
 
         return files;
@@ -66,7 +66,7 @@ public sealed class RemoteLogProvider : ILogProvider
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
-        var results = await response.Content.ReadFromJsonAsync<List<LogSearchResult>>(ct)
+        var results = await response.Content.ReadFromJsonAsync<List<LogSearchResult>>(SitefinityJsonOptions.Default, ct)
             ?? new List<LogSearchResult>();
 
         return results;

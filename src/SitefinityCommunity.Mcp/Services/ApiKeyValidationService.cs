@@ -6,15 +6,31 @@ using SitefinityCommunity.Mcp.Extensions;
 
 namespace SitefinityCommunity.Mcp.Services;
 
+/// <summary>
+/// Outcome of calling <c>/RestApi/mcp/ping</c> on a Sitefinity environment to check the API key.
+/// </summary>
 public enum ApiKeyValidationResult
 {
+    /// <summary>Ping succeeded and the key matches Sitefinity's configured key.</summary>
     Valid,
+
+    /// <summary>Sitefinity responded with 401/403 — the configured key does not match.</summary>
     InvalidKey,
+
+    /// <summary>Sitefinity could not be reached, is still bootstrapping, or returned an unexpected response.</summary>
     Unreachable
 }
 
+/// <summary>
+/// Proactively validates that the MCP server's API key matches the one configured in Sitefinity
+/// by probing <c>/RestApi/mcp/ping</c>. Results are cached per environment to avoid per-tool ping overhead.
+/// </summary>
 public interface IApiKeyValidationService
 {
+    /// <summary>
+    /// Validates the API key for the given environment (or the current default) against Sitefinity.
+    /// Returns a cached result when the previous check is still within its TTL.
+    /// </summary>
     Task<ApiKeyValidationResult> ValidateAsync(string? environmentName = null, CancellationToken ct = default);
 
     /// <summary>
