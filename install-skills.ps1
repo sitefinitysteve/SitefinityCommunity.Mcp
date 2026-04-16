@@ -22,7 +22,7 @@
 # ============================================================================
 
 param(
-    [Parameter(HelpMessage = "'project' (this or -Target folder) or 'global' ($HOME). Prompts if omitted.")]
+    [Parameter(HelpMessage = "'project' (this or -Target folder) or 'global' (home directory). Prompts if omitted.")]
     [ValidateSet("project", "global")]
     [string]$Scope,
 
