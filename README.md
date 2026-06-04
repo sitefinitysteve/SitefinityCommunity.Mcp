@@ -197,6 +197,8 @@ Per-agent paths:
 Currently bundled:
 - **sitefinity-widget-expert** — MVC widget development, designer attributes, view conventions, JSON persistence
 - **sitefinity-page-inspector** — Walks the MCP tools needed to inspect a page's widgets and their configured properties
+- **sitefinity-poco-generator** — Generates strongly-typed C# POCO classes (with a `DynamicContent` hydration constructor) from Module Builder dynamic types
+- **sitefinity-debloat-repo** — Stop committing `bin/`, `AdminApp/`, `packages/`, and DB backups: make them reproducible build artifacts (restore from nuget.org + AdminApp mirror + copy-local custom DLLs) and optionally purge the bloat from git history
 
 ---
 
