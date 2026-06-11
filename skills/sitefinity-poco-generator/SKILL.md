@@ -7,6 +7,8 @@ You are a Sitefinity POCO generator. Your job: take the output of the `sitefinit
 
 **Philosophy: `var dto = new MyTypeDto(dynamicItem)` gives you a fully populated object.** Taxonomy fields become rich objects (not bare Guids). Related images/documents become typed DTOs. Child types are recursively hydrated. The user can tweak from there.
 
+**Version baseline: Sitefinity 15.4** - API claims below (type locations, `GetRelatedItems` behavior) were verified against 15.4 assemblies. Check the target project's version before relying on version-sensitive details: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8630.0` = Sitefinity 15.4). For how dynamic content is physically stored (the `sf_dynamic_content` + per-type table split), see the companion skill `sitefinity-database-structure`.
+
 ## Workflow
 
 1. **Always list modules first.** Call `sitefinity_list_dynamic_types` before anything else. This gives you the authoritative list of modules and types available on the target environment. Cache the result for the rest of the session -- don't call it again unless the user changes environment.
@@ -89,6 +91,10 @@ Key conventions:
 - **Braces on their own line.** Allman-style (C# standard).
 - **Alphabetize `using` statements.** Sort ascending by full namespace (`System` first is fine, but don't hand-order the Telerik ones -- let A-Z decide). Keeps diffs clean across regenerations.
 
+## Hydrate LIVE items (lifecycle warning)
+
+Pass **Live** `DynamicContent` items into these constructors (`Status == ContentLifecycleStatus.Live && Visible`). Dynamic content keeps a persistent Master(0) + Live(2) row PAIR per item, and the platform resolves related data **in the same lifecycle status as the source item** (verified: `GetRelatedItems` derives the status filter from the item you call it on; relation links are lifecycle-scoped in storage). Hydrating a Master item therefore returns master-scoped relations and child queries that don't match what visitors see. If you must hydrate masters (backend tooling), say so explicitly in the generated class's XML doc.
+
 ## Field Hydration Patterns
 
 Use these exact Sitefinity SDK patterns in the `DynamicContent` constructor. Do NOT use project-specific extension methods.
@@ -123,7 +129,7 @@ this.StartDate = dataItem.GetValue<DateTime?>("{FieldName}");
 this.DueDate = dataItem.GetValue<DateTime>("{FieldName}"); // if [required]
 ```
 
-Store as UTC. Do NOT call `.ToSitefinityUITime()` in the DTO -- that's a presentation concern for the consuming code.
+Store as UTC. Do NOT convert to local/UI time in the DTO -- that's a presentation concern for the consuming code.
 
 ### Guid fields
 
@@ -146,7 +152,7 @@ if (choices != null)
 }
 ```
 
-**Requires:** `using Telerik.Sitefinity.Model;` (for `ChoiceOption`)
+**Requires:** `using Telerik.Sitefinity.DynamicModules.Model;` (verified: `ChoiceOption` lives at `Telerik.Sitefinity.DynamicModules.Model.ChoiceOption` -- the same namespace as `DynamicContent`, so the standard template usings already cover it. It is NOT in `Telerik.Sitefinity.Model`.)
 
 ### Taxonomy fields (Tags, Categories, custom classifications)
 
@@ -178,7 +184,7 @@ if (catIds != null)
 }
 ```
 
-**Requires:** `using Telerik.OpenAccess;` (for `TrackedList<T>`), `using Telerik.Sitefinity.Taxonomies;`, and `using Telerik.Sitefinity.Taxonomies.Model;` (for `Taxon` / `HierarchicalTaxon`). Omitting `Telerik.OpenAccess` causes the generated file to fail compilation because `TrackedList<Guid>` won't resolve.
+**Requires:** `using Telerik.OpenAccess;` (for `TrackedList<T>`), `using Telerik.Sitefinity.Taxonomies;`, and `using Telerik.Sitefinity.Taxonomies.Model;` (for `Taxon` / `HierarchicalTaxon`). Omitting `Telerik.OpenAccess` causes the generated file to fail compilation because `TrackedList<Guid>` won't resolve. Reuse one `TaxonomyManager` instance per constructor (call `GetManager()` once even when multiple taxonomy fields exist).
 
 **Determining the taxonomy field name for `GetValue<TrackedList<Guid>>()`:**
 
@@ -200,21 +206,23 @@ Always use the **field name** (left side) with `GetValue<TrackedList<Guid>>()`.
 
 ### Related data (DynamicContent items)
 
-Use the **generic** `GetRelatedItems<T>()` extension (defined in `Telerik.Sitefinity.RelatedData`) to pull child items linked through a related-data field. The extension's signature per the Sitefinity SDK:
+Use the **generic** `GetRelatedItems<T>()` extension (defined in `Telerik.Sitefinity.RelatedData`). The verified 15.4 signature:
 
 ```csharp
-IQueryable<T> GetRelatedItems<T>(this object item, string fieldName) where T : IDataItem
+public static IQueryable<T> GetRelatedItems<T>(this object item, string fieldName) where T : IDataItem
 ```
 
-**Two non-obvious gotchas from the Sitefinity docs -- handle both:**
+**Two non-obvious gotchas -- handle both:**
 
-1. **Field name must match exactly.** If the `fieldName` argument is wrong by so much as a letter-case, `GetRelatedItems` returns `null` (not an empty query). Pass the exact field name from the MCP tool output; never invent or pluralize.
-2. **Always materialize the `IQueryable` before projecting.** Per the official Sitefinity docs: *"When using the IQueryable interface, be aware that content items do not have a Provider property set, so related data is not returned. The reason is that the Provider property is a complex object and it is not persisted in the database. It is only built when you load the query from the database. When you work with the IQueryable item from the collection, the Provider property is still null. When the final collection is queried, you can use an IEnumerable interface to get single items from the collection."* In practice, skipping materialization means any call that a child DTO constructor makes into `GetValue<...>`, `GetRelatedItems<...>`, or taxon resolution on those items silently misbehaves. Call `.ToList()` first to force materialization, then project into DTOs.
+1. **A wrong field name fails SILENTLY EMPTY, not loudly.** Verified in the 15.4 implementation: when nothing resolves, the method returns `Enumerable.Empty<T>().AsQueryable()` -- it does NOT throw and (on 15.4) does not return null. A field name off by one character or letter-case just produces an always-empty collection with zero diagnostics. Pass the exact field name from the MCP tool output; never invent or pluralize. (Older Sitefinity versions were documented as returning null in some paths -- the `?.ToList()` guard below is cheap insurance across versions.)
+2. **Always materialize the `IQueryable` before projecting.** Per the official Sitefinity docs: *"When using the IQueryable interface, be aware that content items do not have a Provider property set, so related data is not returned. ... When the final collection is queried, you can use an IEnumerable interface to get single items from the collection."* In practice, skipping materialization means any call that a child DTO constructor makes into `GetValue<...>`, `GetRelatedItems<...>`, or taxon resolution on those items silently misbehaves. Call `.ToList()` first to force materialization, then project into DTOs.
+
+Also note (verified): the relation is resolved **in the source item's lifecycle status** -- see "Hydrate LIVE items" above.
 
 Correct pattern when a DTO exists for the related type:
 
 ```csharp
-// ?.ToList() both null-guards and materializes (fixes Provider property -- see gotcha #2)
+// ?.ToList() both null-guards (older versions) and materializes (fixes Provider property -- gotcha #2)
 var related = dataItem.GetRelatedItems<DynamicContent>("{FieldName}")?.ToList();
 if (related != null)
 {
@@ -222,7 +230,7 @@ if (related != null)
 }
 ```
 
-The property is already initialized to `new List<T>()` on the declaration, so if `GetRelatedItems` returns null the property keeps its default empty list -- no ternary needed.
+The property is already initialized to `new List<T>()` on the declaration, so an empty/null result keeps the default empty list -- no ternary needed.
 
 Fallback when no DTO exists for the related type (just store the Ids):
 
@@ -236,17 +244,17 @@ if (related != null)
 
 **Requires:** `using Telerik.Sitefinity.RelatedData;` (for `GetRelatedItems<T>`)
 
-**Also available in the same namespace** (do NOT use in generated POCO constructors -- mention only if the user asks for advanced access patterns):
+**Also available in the same namespace** (verified signatures; do NOT use in generated POCO constructors -- mention only if the user asks for advanced access patterns):
 
 | Method | Returns | When to use |
 |--------|---------|-------------|
 | `GetRelatedItems(item, fieldName)` (non-generic) | `IQueryable<IDataItem>` | When the related type isn't known at compile time. Generated POCOs always know the type -- prefer the generic overload. |
-| `GetRelatedItemsCountByField(item, fieldName = null)` | `int` | "How many children?" without loading them. Filtering by field name is optional. |
-| `GetRelatedItemsCountByType(item, typeName = null)` | `int` | Count across all related fields of a given type. |
+| `GetRelatedItemsCountByField(item, fieldName)` | `int` | "How many children?" without loading them. |
+| `GetRelatedItemsCountByType(item, typeName)` | `int` | Count across all related fields of a given type. |
 | `GetRelatedParentItems(item, parentTypeName, providerName?, fieldName?)` | `IQueryable<IDataItem>` | Walk UP the relation (non-generic). `fieldName` is the related field name in the **parent** item linking to this one. Same materialization rule applies. |
-| `GetRelatedParentItems<T>(item, providerName?, fieldName?)` | `IQueryable<T>` | Walk UP the relation (generic). Same as above but typed. Same materialization rule applies. |
-| `GetRelatedParentItemsList(item, parentTypeName, providerName?, fieldName?)` | `IList` | Same as above but pre-materialized. The docs note: *"returned result contains a list with all related data items in the same status as the related item."* Safe for widget templates. |
-| `GetItemsWithSameTaxons(item, taxonomyFieldName, relatedItemsTypeFullName, skip?, take?, ...)` | `IEnumerable` | "See also" / "Related articles" -- items of another type sharing at least one taxon value with this item. Supports pagination and additional filter/order expressions. |
+| `GetRelatedParentItems<T>(item, providerName?, fieldName?)` | `IQueryable<T>` | Walk UP the relation (generic). Same materialization rule applies. |
+| `GetRelatedParentItemsList(item, parentTypeName, providerName?, fieldName?)` | `IList` | Same as above but pre-materialized, filtered to **the same lifecycle status as the item** (verified in source). Safe for widget templates. |
+| `GetItemsWithSameTaxons(item, taxonomyFieldName, relatedItemsTypeFullName, skip, take, ...)` | `IEnumerable` | "See also" / "Related articles" -- items of another type sharing at least one taxon value with this item. Supports pagination and additional filter/order expressions. |
 
 ### Related images
 
@@ -282,13 +290,13 @@ if (videos != null)
 
 ### Child items (Module Builder parent/child hierarchy)
 
-For child types in the Module Builder hierarchy (where the tool shows nested `--` indentation), query via `DynamicModuleManager` using `SystemParentId`:
+For child types in the Module Builder hierarchy (where the tool shows nested `--` indentation), query via `DynamicModuleManager` using `SystemParentId`. Filter `Live` AND `Visible` -- a live-but-unpublished (hidden) child should not hydrate into a frontend DTO:
 
 ```csharp
 var manager = DynamicModuleManager.GetManager();
 var childType = TypeResolutionService.ResolveType("{ChildType_CLR_From_Tool}");
 this.{ChildCollection} = manager.GetDataItems(childType)
-    .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live)
+    .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live && x.Visible)
     .ToList()                              // materialize IQueryable to List<DynamicContent>
     .Select(x => new {ChildType}Dto(x))   // project into DTOs (can't run server-side)
     .ToList();
@@ -335,11 +343,11 @@ this.ParentId = dataItem.SystemParentId;
 Skip these system fields by default:
 - `Translations`, `Author`, `Actions`, `IncludeInSitemap`
 
-Include these commonly useful system fields:
+Include these commonly useful system fields (all verified properties on `DynamicContent`):
 - `UrlName` -> `string` (from `dataItem.UrlName`)
-- `PublicationDate` -> `DateTime?` (from `dataItem.PublicationDate`)
-- `DateCreated` -> `DateTime?` (from `dataItem.DateCreated`)
-- `LastModified` -> `DateTime?` (from `dataItem.LastModified`)
+- `PublicationDate` -> `DateTime` (from `dataItem.PublicationDate`)
+- `DateCreated` -> `DateTime` (from `dataItem.DateCreated`)
+- `LastModified` -> `DateTime` (from `dataItem.LastModified`)
 
 ## Companion DTO Classes
 
@@ -528,6 +536,8 @@ namespace {Namespace}
 }
 ```
 
+(All media DTO source properties verified against the 15.4 model assembly, including `Video.Width`/`Video.Height`. `Title`, `AlternativeText`, and `Author` are `Lstring` on the source models -- the implicit conversion to `string` makes direct assignment valid.)
+
 ## Parent/Child Hierarchy Handling
 
 If `sitefinity_get_module_structure` returns a tree like:
@@ -559,14 +569,14 @@ public class ParentTypeDto
 
         var childAType = TypeResolutionService.ResolveType("{ChildTypeA_CLR_From_Tool}");
         this.ChildTypeAs = manager.GetDataItems(childAType)
-            .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live)
+            .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live && x.Visible)
             .ToList()
             .Select(x => new ChildTypeADto(x))
             .ToList();
 
         var childBType = TypeResolutionService.ResolveType("{ChildTypeB_CLR_From_Tool}");
         this.ChildTypeBs = manager.GetDataItems(childBType)
-            .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live)
+            .Where(x => x.SystemParentId == dataItem.Id && x.Status == ContentLifecycleStatus.Live && x.Visible)
             .ToList()
             .Select(x => new ChildTypeBDto(x))
             .ToList();
@@ -602,9 +612,10 @@ Rules:
 - Child types get `public Guid ParentId { get; set; }` populated from `dataItem.SystemParentId`.
 - The parent gets a `List<{ChildDto}>` collection property, named as the plural of the child type.
 - Use the **full CLR type name** from the MCP tool output when calling `TypeResolutionService.ResolveType()`.
-- Always filter by `ContentLifecycleStatus.Live` to exclude drafts.
+- Always filter by `ContentLifecycleStatus.Live && Visible` to exclude drafts and hidden items.
 - Reuse the same `DynamicModuleManager` instance within a constructor (call `GetManager()` once).
 - If a child type itself has children (grandchildren), the child's constructor recursively hydrates those too.
+- **Deep-hierarchy caution:** each level of children adds queries per item (classic N+1). For a 3+ level hierarchy hydrated in bulk (e.g. a list page), note it in the summary and suggest the consuming code hydrate children lazily or cache the result.
 
 ## Project-file Integration
 
@@ -647,5 +658,6 @@ When the user asks "generate a POCO for the {ModuleName} module":
 - **Don't invent fields.** If the MCP output didn't list it, it doesn't exist.
 - **Don't silently swallow mapping ambiguities.** If `Choices` could be single or multi, document it.
 - **Don't add `using` statements that aren't needed.**
-- **Don't call `.ToSitefinityUITime()` on dates.** DateTime fields store UTC. Timezone conversion is a presentation concern for the consuming code, not the DTO.
+- **Don't convert dates to local/UI time in the DTO.** DateTime fields store UTC. Timezone conversion is a presentation concern for the consuming code, not the DTO.
+- **Don't trust an empty related collection as proof the relation is empty.** `GetRelatedItems` fails silently on a misspelled field name -- when a generated collection comes back unexpectedly empty during verification, re-check the field name against the MCP tool output before concluding there's no data.
 - **Don't generate duplicate companion DTOs.** Search the project first and reuse existing classes. Match by constructor signature and shape, not just by class name -- a user-authored `SiteImage(Image img)` is as good as `ImageDto(Image img)` and should be preferred.

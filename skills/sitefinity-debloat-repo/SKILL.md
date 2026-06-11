@@ -27,6 +27,9 @@ which must succeed before the optional **Phase 2 (purge history)**. Verify a gre
 running site at the end of Phase 0 — never delete/untrack an artifact you haven't proven you can
 regenerate.
 
+Companion skills: `sitefinity-cli-build` (the evolved build/test/package pipeline this process
+produces) and `sitefinity-binding-doctor` (reconciling binding redirects when the YSOD appears).
+
 ## Mental model
 
 Treat these like `node_modules` — generated, never committed:
@@ -64,8 +67,12 @@ and **vendor** them into `nuget-local/`.
    YSOD `Could not load file or assembly '…' … manifest definition does not match`:
    csproj `<Reference … Version=X>`, csproj `<HintPath>packages\…X\…</HintPath>`,
    `packages.config` `<package version="X">`, and `web.config`
-   `<runtime><assemblyBinding>` `bindingRedirect newVersion="X"` — all matched to the FileVersion
-   of the DLL actually in `bin/`. PM-console/upgrade-tool upgrades routinely leave these split
+   `<runtime><assemblyBinding>` `bindingRedirect newVersion="X"` — where the redirect's X is the
+   **AssemblyVersion read from the manifest** of the DLL actually in `bin/` (NOT the FileVersion
+   shown in Explorer: packages like Newtonsoft.Json freeze AssemblyVersion per major while
+   FileVersion moves; Telerik.Sitefinity assemblies happen to keep the two in sync, which hides the
+   distinction until a third-party package bites you). The `sitefinity-binding-doctor` skill
+   automates this reconciliation. PM-console/upgrade-tool upgrades routinely leave these split
    (e.g. Feather `Frontend.*` satellites stuck a minor version behind core).
 3. **AdminApp is NuGet *content*** (`Progress.Sitefinity.AdminApp` → `content/AdminApp/`).
    packages.config copies content only at **Install/Update-Package time, NOT on restore** — so a
@@ -92,6 +99,17 @@ and **vendor** them into `nuget-local/`.
 2. **Move them to a committed `Assemblies/`**, repoint each `<HintPath>bin\X.dll` →
    `<HintPath>Assemblies\X.dll`, and add `<Private>True</Private>` (explicit copy-local). Optional:
    add an `Assemblies` solution folder to the `.sln`.
+
+   **If SATELLITE projects HintPath into the site project's bin** (`..\YourSite\bin\X.dll`), a
+   clean clone has a chicken-and-egg: the site project builds LAST, so nothing has populated its
+   bin when the satellites compile. Either repoint those references to `packages\`/`Assemblies\`
+   (invasive on a big solution), or add a **hydrate-bin** pre-compile step: a committed JSON
+   manifest of `{ Origin, RelPath, Sha256 }` entries (Origin = repo-relative source under
+   `packages\` or `Assemblies\`; RelPath = destination inside the site bin) plus a small script
+   that copies each entry into the site bin between restore and msbuild, failing on missing
+   sources or hash mismatches. Generate the manifest once from a known-good bin and commit it.
+   The solution's OWN build outputs stay out of the manifest — the build produces those. See the
+   `sitefinity-cli-build` skill for the evolved build.ps1 that wires this in.
 3. **Rebuild `packages.config` complete** from the csproj's HintPaths (gotcha #1):
    `pwsh scripts/Rebuild-PackagesConfig.ps1 -Csproj .\YourProject.csproj -WhatIf` to preview, then
    without `-WhatIf` to write. Then **add `Progress.Sitefinity.AdminApp`** at your Sitefinity
@@ -114,10 +132,10 @@ and **vendor** them into `nuget-local/`.
    ```
    (keep `<config><add key="repositoryPath" value="./packages" /></config>` + `<packageRestore enabled=True>`).
 7. **`build.ps1`** — restore (packages.config needs `nuget.exe restore`, not `msbuild -t:restore`)
-   + AdminApp mirror, before MSBuild. nuget.exe self-bootstraps into git-ignored `tools/`:
+   + AdminApp mirror, before MSBuild. nuget.exe self-bootstraps into git-ignored `.tools/`:
    ```powershell
    if (-not $SkipRestore) {
-       $nuget = "$PSScriptRoot\tools\nuget.exe"
+       $nuget = "$PSScriptRoot\.tools\nuget.exe"
        if (-not (Test-Path $nuget)) {
            New-Item -ItemType Directory -Force (Split-Path $nuget) | Out-Null
            Invoke-WebRequest 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe' -OutFile $nuget }
@@ -143,7 +161,7 @@ and **vendor** them into `nuget-local/`.
 ```gitignore
 /bin/
 /AdminApp/
-/tools/
+/.tools/
 **/packages/*
 !/nuget-local/
 !/nuget-local/*.nupkg        # survive the *.nupkg ignore
@@ -163,7 +181,7 @@ Git records the custom DLLs as renames `bin/ → Assemblies/` — preserved, goo
 ## Phase 2 — Purge the history (optional; reclaims `.git`)
 
 Needs `git-filter-repo` (Python): `pip install git-filter-repo`, or fetch the standalone script to
-`tools\git-filter-repo`. **Destructive + rewrites every commit SHA → force-push + re-clone.**
+`.tools\git-filter-repo`. **Destructive + rewrites every commit SHA → force-push + re-clone.**
 
 1. **Back up:** `git clone --no-hardlinks --mirror . ..\PROJ-backup.git` (independent copy).
 2. **Find DB-backup paths** (don't blanket-glob `*.bak` — it can hit a *tracked* script/csproj
@@ -171,7 +189,7 @@ Needs `git-filter-repo` (Python): `pip install git-filter-repo`, or fetch the st
 3. **Purge** the real targets (scope precisely to the paths step 2 found, e.g. a DB-dump folder
    like `App_Data/<your-db-backup-dir>` — not all `*.bak`):
    ```
-   python tools\git-filter-repo --force --invert-paths --path bin --path AdminApp --path App_Data/<your-db-backup-dir>
+   python .tools\git-filter-repo --force --invert-paths --path bin --path AdminApp --path App_Data/<your-db-backup-dir>
    ```
    filter-repo removes the `origin` remote as a safety measure — re-add it next.
 4. **Force-push EVERY branch** that shares the old history (gotcha #5), not just master:
