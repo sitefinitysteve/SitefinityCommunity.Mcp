@@ -302,17 +302,44 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     };
                 }
 
+                // Preload ALL fields for the module in one query, grouped by ParentTypeId — avoids the
+                // per-type field query (the N+1 that calling LoadFieldsForType in the loop would cause).
+                // Mirrors the preload in ListDynamicTypes. Some Sitefinity versions return an empty bulk
+                // result, which is exactly why LoadFieldsForType keeps its 3-strategy fallback — so we
+                // fall back to it per-type whenever the bulk query doesn't cover a type.
+                Dictionary<Guid, List<DynamicModuleField>> fieldsByType;
+                try
+                {
+                    fieldsByType = manager.GetItems(typeof(DynamicModuleField), string.Empty, string.Empty, 0, 0)
+                        .Cast<DynamicModuleField>()
+                        .GroupBy(f => f.ParentTypeId)
+                        .ToDictionary(g => g.Key, g => g.ToList());
+                }
+                catch (Exception)
+                {
+                    fieldsByType = new Dictionary<Guid, List<DynamicModuleField>>();
+                }
+
+                // Preload taxonomy names once so per-field classification lookups don't each call
+                // TaxonomyManager.GetTaxonomy.
+                var classificationNames = BuildClassificationNameLookup();
+
                 // Populate fields for every node
                 foreach (var kv in typesById)
                 {
-                    var fields = LoadFieldsForType(manager, kv.Value);
+                    List<DynamicModuleField> fields;
+                    if (!fieldsByType.TryGetValue(kv.Key, out fields) || fields.Count == 0)
+                    {
+                        fields = LoadFieldsForType(manager, kv.Value);
+                    }
+
                     var mainFieldName = kv.Value.MainShortTextFieldName;
                     var node = nodesById[kv.Key];
                     foreach (var field in fields)
                     {
                         var isMain = !string.IsNullOrEmpty(mainFieldName)
                             && string.Equals(field.Name, mainFieldName, StringComparison.OrdinalIgnoreCase);
-                        var classificationName = ResolveClassificationName(field.ClassificationId);
+                        var classificationName = ResolveClassificationName(field.ClassificationId, classificationNames);
                         node.Fields.Add(BuildFieldInfo(field, isMain, classificationName));
                     }
                 }
@@ -385,6 +412,57 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             {
                 return classificationId.ToString();
             }
+        }
+
+        /// <summary>
+        /// Resolves a classification (taxonomy) name from a preloaded Id→Title lookup, falling back
+        /// to a direct <see cref="ResolveClassificationName(Guid)"/> call when the id isn't present
+        /// (or no lookup was supplied). Lets a caller resolve many fields without a per-field query.
+        /// </summary>
+        private static string ResolveClassificationName(Guid classificationId, Dictionary<Guid, string> lookup)
+        {
+            if (classificationId == Guid.Empty)
+            {
+                return string.Empty;
+            }
+
+            string name;
+            if (lookup != null && lookup.TryGetValue(classificationId, out name))
+            {
+                return name;
+            }
+
+            return ResolveClassificationName(classificationId);
+        }
+
+        /// <summary>
+        /// Loads every taxonomy's Id→Title once so classification field lookups don't each call
+        /// TaxonomyManager.GetTaxonomy. Returns an empty dictionary on failure — callers then fall
+        /// back to per-id resolution.
+        /// </summary>
+        private static Dictionary<Guid, string> BuildClassificationNameLookup()
+        {
+            var lookup = new Dictionary<Guid, string>();
+
+            try
+            {
+                var taxonomyManager = TaxonomyManager.GetManager();
+                foreach (var taxonomy in taxonomyManager.GetTaxonomies<Taxonomy>())
+                {
+                    if (taxonomy != null && !lookup.ContainsKey(taxonomy.Id))
+                    {
+                        lookup[taxonomy.Id] = taxonomy.Title != null
+                            ? taxonomy.Title.ToString()
+                            : taxonomy.Id.ToString();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // best-effort — an empty lookup just means callers resolve per-id
+            }
+
+            return lookup;
         }
 
         /// <summary>
@@ -636,13 +714,12 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                     response.Url = url;
 
-                    // Depth
+                    // Depth — derived from URL path segments (consistent with list_page_routes)
+                    // rather than walking node.Parent, which lazy-loads each ancestor.
                     var depth = 0;
-                    var parent = node.Parent;
-                    while (parent != null)
+                    if (!string.IsNullOrEmpty(url) && url != "/")
                     {
-                        depth++;
-                        parent = parent.Parent;
+                        depth = url.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries).Length;
                     }
                     response.Depth = depth;
 
@@ -889,9 +966,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                                 Title = tmpl.Title ?? string.Empty,
                                 Name = tmpl.Name ?? string.Empty,
                                 Framework = tmpl.Framework.ToString(),
-                                ParentTemplateId = tmpl.ParentTemplate != null
-                                    ? tmpl.ParentTemplate.Id.ToString()
-                                    : null,
+                                ParentTemplateId = ReadParentTemplateId(tmpl),
                                 Culture = tmpl.Culture ?? string.Empty,
                                 ResourcePackage = resourcePackage ?? string.Empty,
                                 IsBackend = isBackend,
@@ -1363,14 +1438,110 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 .Where(p => p.RootNodeId != backendRootId && !p.IsDeleted)
                 .ToList();
 
-            // 2. Try as URL path
+            // node.GetFullUrl() walks the parent chain and is comparatively expensive; matching it
+            // against every node is the costliest pass. Only do it when the identifier actually looks
+            // like a URL path — a bare slug or title is resolved by the cheap in-memory passes below,
+            // avoiding a full GetFullUrl sweep on large sites.
+            var looksLikeUrl = identifier.IndexOf('/') >= 0;
+
+            // 2. URL path — run first for URL-like identifiers so an explicit path resolves by URL
+            // (preserves the prior behavior, where the URL pass took precedence for path inputs).
+            if (looksLikeUrl)
+            {
+                var byUrl = MatchByFullUrl(allNodes, identifier);
+                if (byUrl != null)
+                {
+                    return byUrl;
+                }
+            }
+
+            // 3. UrlName slug. A slug is unique only per-parent, so two pages at different depths can
+            // share one (e.g. top-level "/team" and nested "/about/team"). The old order ran the URL
+            // pass first and thus resolved the shallower page; preserve that by preferring the
+            // candidate with the fewest ancestors when a slug collides.
+            var slug = identifier.Trim('/');
+            var slugMatches = new List<PageNode>();
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    if (string.Equals(node.UrlName, slug, StringComparison.OrdinalIgnoreCase))
+                    {
+                        slugMatches.Add(node);
+                    }
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            if (slugMatches.Count == 1)
+            {
+                return slugMatches[0];
+            }
+
+            if (slugMatches.Count > 1)
+            {
+                return slugMatches.OrderBy(NodeDepth).First();
+            }
+
+            // 4. Exact title match
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    var title = node.Title ?? node.Name ?? string.Empty;
+                    if (string.Equals(title, identifier, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return node;
+                    }
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            // 5. URL path fallback for a bare single-segment identifier that is actually a top-level
+            // page's full URL but didn't match by slug/title. Runs before partial-title (preserving
+            // the old URL-over-partial-title precedence) and only when the cheap passes found nothing,
+            // so the sweep cost is paid only on an otherwise-unresolved lookup.
+            if (!looksLikeUrl)
+            {
+                var byUrl = MatchByFullUrl(allNodes, identifier);
+                if (byUrl != null)
+                {
+                    return byUrl;
+                }
+            }
+
+            // 6. Partial title match
+            foreach (var node in allNodes)
+            {
+                try
+                {
+                    var title = node.Title ?? node.Name ?? string.Empty;
+                    if (title.IndexOf(identifier, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        warnings.Add("Partial title match: '" + title + "' matched identifier '" + identifier + "'");
+                        return node;
+                    }
+                }
+                catch (Exception) { /* skip */ }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Matches a node by its full URL (the expensive pass — <see cref="PageNode.GetFullUrl()"/>
+        /// walks the parent chain per node). Returns the first node whose normalized full URL equals
+        /// the normalized identifier, or null.
+        /// </summary>
+        private PageNode MatchByFullUrl(List<PageNode> nodes, string identifier)
+        {
             var normalizedUrl = identifier.Trim().TrimEnd('/');
             if (!normalizedUrl.StartsWith("/"))
             {
                 normalizedUrl = "/" + normalizedUrl;
             }
 
-            foreach (var node in allNodes)
+            foreach (var node in nodes)
             {
                 try
                 {
@@ -1395,48 +1566,30 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 catch (Exception) { /* skip */ }
             }
 
-            // 3. Try as UrlName slug
-            foreach (var node in allNodes)
-            {
-                try
-                {
-                    if (string.Equals(node.UrlName, identifier.Trim('/'), StringComparison.OrdinalIgnoreCase))
-                    {
-                        return node;
-                    }
-                }
-                catch (Exception) { /* skip */ }
-            }
-
-            // 4. Try as title (exact, then partial)
-            foreach (var node in allNodes)
-            {
-                try
-                {
-                    var title = node.Title ?? node.Name ?? string.Empty;
-                    if (string.Equals(title, identifier, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return node;
-                    }
-                }
-                catch (Exception) { /* skip */ }
-            }
-
-            foreach (var node in allNodes)
-            {
-                try
-                {
-                    var title = node.Title ?? node.Name ?? string.Empty;
-                    if (title.IndexOf(identifier, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        warnings.Add("Partial title match: '" + title + "' matched identifier '" + identifier + "'");
-                        return node;
-                    }
-                }
-                catch (Exception) { /* skip */ }
-            }
-
             return null;
+        }
+
+        /// <summary>
+        /// Counts a node's ancestors by walking the Parent chain. Used only to break slug collisions
+        /// across a handful of candidate nodes (not all nodes), so the per-ancestor lazy loads are
+        /// bounded. Guarded against runaway chains.
+        /// </summary>
+        private static int NodeDepth(PageNode node)
+        {
+            var depth = 0;
+
+            try
+            {
+                var parent = node.Parent;
+                while (parent != null && depth < 64)
+                {
+                    depth++;
+                    parent = parent.Parent;
+                }
+            }
+            catch (Exception) { /* best-effort */ }
+
+            return depth;
         }
 
         /// <summary>
@@ -1799,6 +1952,40 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns a template's parent id as a string, preferring a scalar FK property
+        /// (<c>ParentTemplateId</c>) so we don't lazy-load the parent PageTemplate entity per row.
+        /// Falls back to the <c>ParentTemplate</c> navigation property when no scalar is exposed.
+        /// <see cref="Guid.Empty"/> / blank is treated as "no parent" (null).
+        /// </summary>
+        private static string ReadParentTemplateId(Telerik.Sitefinity.Pages.Model.PageTemplate tmpl)
+        {
+            if (tmpl == null)
+            {
+                return null;
+            }
+
+            // Scalar FK first — avoids the per-template lazy load of the parent entity.
+            var scalar = TryReadStringProperty(tmpl, "ParentTemplateId");
+            if (!string.IsNullOrEmpty(scalar)
+                && !string.Equals(scalar, Guid.Empty.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return scalar;
+            }
+
+            // Fallback: navigation property (lazy-loads, but only when no scalar exists).
+            try
+            {
+                if (tmpl.ParentTemplate != null && tmpl.ParentTemplate.Id != Guid.Empty)
+                {
+                    return tmpl.ParentTemplate.Id.ToString();
+                }
+            }
+            catch (Exception) { /* best-effort */ }
+
+            return null;
         }
 
         private static string TryReadStringProperty(object obj, string propertyName)

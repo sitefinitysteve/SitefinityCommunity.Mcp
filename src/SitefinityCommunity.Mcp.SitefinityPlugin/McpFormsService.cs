@@ -238,38 +238,56 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     }
                 }
 
-                // Order newest-first so Skip/Take pagination is deterministic — without explicit
-                // ordering the OpenAccess provider returns rows in arbitrary storage order and
-                // successive paged calls can return duplicates or miss entries.
-                var entries = manager.GetFormEntries(form)
+                // Order newest-first so Skip/Take pagination is deterministic. DateCreated alone is
+                // not a total order (bulk imports share a timestamp), so tie-break on Id — otherwise
+                // the provider's OFFSET/FETCH can shift rows across page boundaries between calls.
+                var query = manager.GetFormEntries(form)
                     .OrderByDescending(e => e.DateCreated)
-                    .ToList();
-                response.TotalCount = entries.Count;
+                    .ThenByDescending(e => e.Id);
 
-                // Two-phase scan when a search term is supplied:
-                //   Phase 1: build redacted info, test match against any value; count matches.
-                //   Phase 2: only materialize the window [skip, skip+take) of matches into the response.
-                // Without search, MatchedCount equals TotalCount and the window applies to the raw list.
-                var matchedCount = 0;
-                foreach (var entry in entries)
+                if (!hasSearch)
                 {
-                    var info = BuildResponseInfo(entry, fieldNames);
+                    // No search term — push paging down to the provider so we read only one page of
+                    // rows, not the whole table. TotalCount comes from a SQL COUNT, and with no filter
+                    // MatchedCount equals it.
+                    response.TotalCount = query.Count();
+                    response.MatchedCount = response.TotalCount;
 
-                    if (hasSearch && !InfoMatchesSearch(info, searchTerm))
+                    foreach (var entry in query.Skip(skip).Take(take))
                     {
-                        continue;
+                        response.Responses.Add(BuildResponseInfo(entry, fieldNames));
                     }
-
-                    // This entry counts as a match — decide whether it falls in the paging window.
-                    if (matchedCount >= skip && response.Responses.Count < take)
-                    {
-                        response.Responses.Add(info);
-                    }
-
-                    matchedCount++;
                 }
+                else
+                {
+                    // Search must run against *redacted* values (so sensitive fields can't be
+                    // discovered via search), which can't be expressed in SQL — so we materialize,
+                    // redact, then match. TotalCount is all entries; MatchedCount is the post-filter
+                    // total; the window [skip, skip+take) applies to the matched set.
+                    var entries = query.ToList();
+                    response.TotalCount = entries.Count;
 
-                response.MatchedCount = matchedCount;
+                    var matchedCount = 0;
+                    foreach (var entry in entries)
+                    {
+                        var info = BuildResponseInfo(entry, fieldNames);
+
+                        if (!InfoMatchesSearch(info, searchTerm))
+                        {
+                            continue;
+                        }
+
+                        // This entry counts as a match — decide whether it falls in the paging window.
+                        if (matchedCount >= skip && response.Responses.Count < take)
+                        {
+                            response.Responses.Add(info);
+                        }
+
+                        matchedCount++;
+                    }
+
+                    response.MatchedCount = matchedCount;
+                }
             }
             catch (Exception ex)
             {
