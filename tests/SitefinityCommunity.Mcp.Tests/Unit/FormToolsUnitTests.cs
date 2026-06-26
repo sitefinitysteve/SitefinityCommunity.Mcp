@@ -41,7 +41,7 @@ public sealed class FormToolsUnitTests
     public async Task GetFormFields_ReturnsFieldsWithChoices()
     {
         var (tools, mock) = CreateTools();
-        mock.GetFormFieldsAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        mock.GetFormFieldsAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new FormFieldsResponse
             {
                 FormId = "f-1",
@@ -84,7 +84,7 @@ public sealed class FormToolsUnitTests
         var (tools, mock) = CreateTools();
         mock.ListFormResponsesAsync(
                 Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new FormResponsesResponse
             {
                 FormId = "f-1",
@@ -121,13 +121,13 @@ public sealed class FormToolsUnitTests
         var (tools, mock) = CreateTools();
         mock.ListFormResponsesAsync(
                 Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new FormResponsesResponse());
 
         await tools.ListFormResponses("Contact", take: 20, skip: 5);
 
         await mock.Received(1).ListFormResponsesAsync(
-            "Contact", 20, 5, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            "Contact", 20, 5, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
