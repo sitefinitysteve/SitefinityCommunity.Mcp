@@ -547,21 +547,54 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     [Route("/mcp/where-used", "GET")]
     public class WhereUsed : IReturn<McpWhereUsedResponse>
     {
+        /// <summary>
+        /// What to look for. By Kind: a widget/controller type name (widget), a content-item Guid
+        /// (content), a template id/name (template), or any literal substring to find in widget
+        /// property values (property).
+        /// </summary>
         public string Query { get; set; }
 
-        /// <summary>Optional interpretation override: "widget", "content", or "template".</summary>
+        /// <summary>
+        /// Optional interpretation override: "widget", "content", "template", or "property".
+        /// Auto-detected when omitted (a Guid probes template then content; any other token is a widget).
+        /// </summary>
         public string Kind { get; set; }
+
+        /// <summary>
+        /// When false (default), a widget/content/property match found on a TEMPLATE is expanded into the
+        /// individual pages that ride that template, each reported as an inherited usage — so the result
+        /// answers "what actually breaks if I change this?". Set true to report only the template host and
+        /// suppress the page expansion.
+        /// </summary>
+        public bool TemplateHostsOnly { get; set; }
     }
 
     public class McpWhereUsedItem
     {
+        /// <summary>"page" or "template".</summary>
         public string HostKind { get; set; }
         public string HostId { get; set; }
         public string HostTitle { get; set; }
         public string HostUrl { get; set; }
+
         public string WidgetId { get; set; }
         public string WidgetName { get; set; }
+        public string ControllerName { get; set; }
+        public string ObjectType { get; set; }
+
+        /// <summary>"medportal", "sitefinity", or "unknown" — provenance of the matched widget.</summary>
+        public string Origin { get; set; }
+        public string PlaceHolder { get; set; }
+
         public string MatchReason { get; set; }
+
+        /// <summary>For content/property matches: the property whose value matched and a short snippet around it.</summary>
+        public string MatchedProperty { get; set; }
+        public string MatchSnippet { get; set; }
+
+        /// <summary>Set when this page usage is inherited from a widget that actually lives on a template.</summary>
+        public string ViaTemplateId { get; set; }
+        public string ViaTemplateTitle { get; set; }
     }
 
     public class McpWhereUsedResponse
@@ -569,7 +602,18 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Query { get; set; }
         public string ResolvedKind { get; set; }
         public string ResolvedTitle { get; set; }
+
         public int TotalUsages { get; set; }
+        public int PageUsageCount { get; set; }
+        public int TemplateUsageCount { get; set; }
+
+        /// <summary>Pages reported because the match lives on a template they ride (not on the page itself).</summary>
+        public int InheritedPageCount { get; set; }
+
+        public int ScannedPages { get; set; }
+        public int ScannedTemplates { get; set; }
+        public int SkippedHosts { get; set; }
+
         public List<McpWhereUsedItem> Usages { get; set; } = new List<McpWhereUsedItem>();
         public List<string> Warnings { get; set; } = new List<string>();
     }
@@ -579,19 +623,58 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     [Route("/mcp/permissions", "GET")]
     public class GetObjectPermissions : IReturn<McpPermissionsResponse>
     {
+        /// <summary>A page identifier (Guid, URL, slug, or title) or — with TypeFullName — a content-item Guid.</summary>
         public string Identifier { get; set; }
 
         /// <summary>When set, the Identifier is treated as a content item Guid of this CLR type.</summary>
         public string TypeFullName { get; set; }
+
+        /// <summary>
+        /// Optional. Focus a single action type (View, Create, Modify, Manage, Delete, ChangeOwner,
+        /// ChangePermissions, Unlock). Combined with Principal it yields a direct yes/no Answer.
+        /// </summary>
+        public string Action { get; set; }
+
+        /// <summary>Optional. Focus a single principal (role/user name or Guid) for the direct Answer.</summary>
+        public string Principal { get; set; }
     }
 
-    public class McpPermissionEntry
+    /// <summary>Computed access for one principal (role/user) on the object, after deny-wins resolution.</summary>
+    public class McpPrincipalAccess
     {
-        public string PermissionSetName { get; set; }
-        public string RoleId { get; set; }
-        public string RoleName { get; set; }
+        public string PrincipalId { get; set; }
+        public string PrincipalName { get; set; }
+
+        /// <summary>"Role", "User", "SpecialRole" (Everyone / Authenticated / Owner), or "Unknown".</summary>
+        public string PrincipalType { get; set; }
+
+        /// <summary>True for an administrative role — implicitly has full control regardless of grants.</summary>
+        public bool IsAdministrative { get; set; }
+        public string PermissionSet { get; set; }
+
+        /// <summary>Actions the principal can effectively perform (granted AND not denied). The headline result.</summary>
+        public List<string> EffectiveActions { get; set; } = new List<string>();
         public List<string> GrantedActions { get; set; } = new List<string>();
         public List<string> DeniedActions { get; set; } = new List<string>();
+        public string Note { get; set; }
+    }
+
+    /// <summary>One permission set on the object: its full action vocabulary plus per-principal access.</summary>
+    public class McpPermissionSetView
+    {
+        public string SetName { get; set; }
+        public List<string> AvailableActions { get; set; } = new List<string>();
+        public List<McpPrincipalAccess> Principals { get; set; } = new List<McpPrincipalAccess>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>Direct yes/no answer to "can &lt;Principal&gt; &lt;Action&gt; this object?" when both are supplied.</summary>
+    public class McpAccessAnswer
+    {
+        public string Principal { get; set; }
+        public string Action { get; set; }
+        public bool Allowed { get; set; }
+        public string Reason { get; set; }
     }
 
     public class McpPermissionsResponse
@@ -599,8 +682,36 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Target { get; set; }
         public string TargetKind { get; set; }
         public string TargetTitle { get; set; }
+
+        /// <summary>One-line human summary of the access picture.</summary>
+        public string Summary { get; set; }
+
         public bool InheritsPermissions { get; set; }
-        public List<McpPermissionEntry> Permissions { get; set; } = new List<McpPermissionEntry>();
+        public bool CanInheritPermissions { get; set; }
+
+        /// <summary>True when the object carries its own (local) permission rows rather than purely inheriting.</summary>
+        public bool HasLocalOverrides { get; set; }
+
+        /// <summary>For pages: the parent the object inherits permissions from, when inheriting.</summary>
+        public string InheritedFrom { get; set; }
+
+        /// <summary>True when the Everyone (anonymous) role can effectively View the object.</summary>
+        public bool IsPublic { get; set; }
+
+        /// <summary>True when any authenticated user can effectively View the object.</summary>
+        public bool IsAuthenticatedAccessible { get; set; }
+
+        public List<string> SupportedPermissionSets { get; set; } = new List<string>();
+
+        /// <summary>Flattened, deny-resolved access across every set — the quick "who can do what" view.</summary>
+        public List<McpPrincipalAccess> Principals { get; set; } = new List<McpPrincipalAccess>();
+
+        /// <summary>Per-set detail, including each set's full action vocabulary.</summary>
+        public List<McpPermissionSetView> Sets { get; set; } = new List<McpPermissionSetView>();
+
+        /// <summary>Populated only when the request supplied Action and/or Principal.</summary>
+        public McpAccessAnswer Answer { get; set; }
+
         public List<string> Warnings { get; set; } = new List<string>();
     }
 

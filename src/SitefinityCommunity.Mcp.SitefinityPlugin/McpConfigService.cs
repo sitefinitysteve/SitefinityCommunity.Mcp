@@ -7,7 +7,6 @@ using ServiceStack;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -16,11 +15,13 @@ using Telerik.Sitefinity.Configuration;
 namespace SitefinityCommunity.Mcp.SitefinityPlugin
 {
     /// <summary>
-    /// Read-only access to Sitefinity configuration sections. There is no string-keyed section
-    /// lookup in the public API, so sections are discovered by scanning loaded assemblies for
-    /// <see cref="ConfigSection"/>-derived types and read through <c>Config.Get&lt;T&gt;()</c> via
-    /// reflection. Every value is routed through <see cref="McpSecretRedactor"/> — config sections
-    /// carry SMTP passwords, connection strings, and API keys.
+    /// Read-only access to Sitefinity configuration sections. There is no string-keyed section lookup in
+    /// the public API, so sections are discovered by scanning loaded assemblies for
+    /// <see cref="ConfigSection"/>-derived types, loaded via <c>Config.Get(Type)</c>, and flattened with
+    /// Sitefinity's own config model (<see cref="ConfigElement.Properties"/> + the string indexer) — NOT
+    /// <c>System.Configuration</c>, which Sitefinity's <see cref="ConfigElement"/> does not derive from.
+    /// Every value is routed through <see cref="McpSecretRedactor"/> — config sections carry SMTP
+    /// passwords, connection strings, and API keys.
     /// </summary>
     [McpApiKey]
     public class McpConfigService : Service
@@ -89,10 +90,10 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                 response.Found = true;
 
-                var element = section as ConfigurationElement;
+                var element = section as ConfigElement;
                 if (element == null)
                 {
-                    response.Warnings.Add("Section is not a ConfigurationElement; cannot enumerate properties.");
+                    response.Warnings.Add("Section is not a Sitefinity ConfigElement; cannot enumerate properties.");
                     return response;
                 }
 
@@ -119,7 +120,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return response;
         }
 
-        // ── Private Helpers ──────────────────────────────────────────
+        // ── Section discovery / loading ──────────────────────────────
 
         /// <summary>
         /// Every non-abstract <see cref="ConfigSection"/>-derived type loaded in the AppDomain.
@@ -193,56 +194,32 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         }
 
         /// <summary>
-        /// Calls <c>Config.Get&lt;T&gt;()</c> for a runtime section type via reflection (the public API
-        /// is generic-only). Falls back to <c>ConfigManager.GetManager().GetSection&lt;T&gt;()</c>.
+        /// Loads the live section instance. Sitefinity's public, non-generic <c>Config.Get(Type)</c>
+        /// returns the populated <see cref="ConfigSection"/> for a runtime section type.
         /// </summary>
         private static object GetSectionInstance(Type sectionType)
         {
-            // Config.Get<T>() — static, no-arg generic
             try
             {
-                var getMethod = typeof(Config)
-                    .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .FirstOrDefault(m => m.Name == "Get" && m.IsGenericMethodDefinition
-                                         && m.GetParameters().Length == 0);
-
-                if (getMethod != null)
-                {
-                    return getMethod.MakeGenericMethod(sectionType).Invoke(null, null);
-                }
+                return Config.Get(sectionType);
             }
             catch (Exception)
             {
-                // fall through to ConfigManager
+                return null;
             }
-
-            try
-            {
-                var manager = ConfigManager.GetManager();
-                var getSection = typeof(ConfigManager)
-                    .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .FirstOrDefault(m => m.Name == "GetSection" && m.IsGenericMethodDefinition
-                                         && m.GetParameters().Length == 0);
-
-                if (getSection != null)
-                {
-                    return getSection.MakeGenericMethod(sectionType).Invoke(manager, null);
-                }
-            }
-            catch (Exception)
-            {
-            }
-
-            return null;
         }
 
+        // ── Flattening (Sitefinity config model) ─────────────────────
+
         /// <summary>
-        /// Recursively flattens a config element into Path=Value entries using the standard .NET
-        /// configuration model (<see cref="ConfigurationElement.ElementInformation"/>), so it works
-        /// for any Sitefinity section without binding to version-specific Sitefinity collection types.
+        /// Recursively flattens a Sitefinity <see cref="ConfigElement"/> into Path=Value entries using its
+        /// <see cref="ConfigElement.Properties"/> descriptors and string indexer. A
+        /// <c>ConfigElementDictionary</c> is both a ConfigElement and an <see cref="IEnumerable"/>, so the
+        /// enumerable branch (checked first) walks dictionary/collection items, keyed by
+        /// <see cref="ConfigElement.GetKey()"/>.
         /// </summary>
         private static void DumpElement(
-            ConfigurationElement element,
+            ConfigElement element,
             string path,
             List<McpConfigEntry> entries,
             HashSet<object> visited,
@@ -259,58 +236,79 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 return; // cycle guard
             }
 
-            PropertyInformationCollection props;
+            ConfigPropertyCollection props;
             try
             {
-                props = element.ElementInformation.Properties;
+                props = element.Properties;
             }
             catch (Exception)
             {
                 return;
             }
 
-            foreach (PropertyInformation pi in props)
+            if (props == null)
             {
+                return;
+            }
+
+            var ownerType = element.GetType();
+
+            foreach (ConfigProperty cp in props)
+            {
+                if (cp == null || string.IsNullOrEmpty(cp.Name))
+                {
+                    continue;
+                }
+
                 object value;
                 try
                 {
-                    value = pi.Value;
+                    value = element[cp.Name];
                 }
                 catch (Exception)
                 {
                     continue;
                 }
 
-                var childPath = string.IsNullOrEmpty(path) ? pi.Name : path + "." + pi.Name;
+                var childPath = string.IsNullOrEmpty(path) ? cp.Name : path + "." + cp.Name;
 
-                var ownerType = element.GetType();
-
-                if (value is ConfigurationElement nestedElement && !(value is IEnumerable))
+                if (value == null)
                 {
-                    DumpElement(nestedElement, childPath, entries, visited, depth + 1, warnings);
+                    entries.Add(BuildEntry(childPath, cp.Name, null, ownerType));
+                    continue;
                 }
-                else if (value is IEnumerable enumerable && !(value is string))
+
+                // Collection (ConfigElementDictionary, element collections, value arrays).
+                if (value is IEnumerable enumerable && !(value is string))
                 {
                     var index = 0;
                     foreach (var item in enumerable)
                     {
-                        if (item is ConfigurationElement childElement)
+                        if (item is ConfigElement childElement)
                         {
-                            var key = TryGetElementKey(childElement) ?? index.ToString();
+                            var key = ElementKey(childElement) ?? index.ToString();
                             DumpElement(childElement, childPath + "[" + key + "]", entries, visited, depth + 1, warnings);
                         }
                         else if (item != null)
                         {
-                            entries.Add(BuildEntry(childPath + "[" + index + "]", pi.Name, item, ownerType));
+                            entries.Add(BuildEntry(childPath + "[" + index + "]", cp.Name, item, ownerType));
                         }
 
                         index++;
                     }
+
+                    continue;
                 }
-                else
+
+                // Nested single element.
+                if (value is ConfigElement nested)
                 {
-                    entries.Add(BuildEntry(childPath, pi.Name, value, ownerType));
+                    DumpElement(nested, childPath, entries, visited, depth + 1, warnings);
+                    continue;
                 }
+
+                // Scalar leaf.
+                entries.Add(BuildEntry(childPath, cp.Name, value, ownerType));
             }
         }
 
@@ -441,48 +439,18 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return false;
         }
 
-        /// <summary>
-        /// Best-effort friendly key for a collection element: Sitefinity dictionary entries expose
-        /// GetKey(); otherwise probe common identifying properties.
-        /// </summary>
-        private static string TryGetElementKey(ConfigurationElement element)
+        /// <summary>Friendly key for a collection element via Sitefinity's <see cref="ConfigElement.GetKey()"/>.</summary>
+        private static string ElementKey(ConfigElement element)
         {
             try
             {
-                var getKey = element.GetType().GetMethod("GetKey",
-                    BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-
-                if (getKey != null)
-                {
-                    var key = getKey.Invoke(element, null);
-                    if (key != null)
-                    {
-                        return key.ToString();
-                    }
-                }
+                var key = element.GetKey();
+                return string.IsNullOrEmpty(key) ? null : key;
             }
             catch (Exception)
             {
+                return null;
             }
-
-            foreach (var name in new[] { "Name", "Key", "Title", "ProviderName" })
-            {
-                try
-                {
-                    var prop = element.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-                    var val = prop != null ? prop.GetValue(element, null) : null;
-
-                    if (val != null && !string.IsNullOrEmpty(val.ToString()))
-                    {
-                        return val.ToString();
-                    }
-                }
-                catch (Exception)
-                {
-                }
-            }
-
-            return null;
         }
 
         /// <summary>

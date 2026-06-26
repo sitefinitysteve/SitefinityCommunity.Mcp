@@ -5,34 +5,43 @@
 
 using ServiceStack;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Reflection;
 using Telerik.Sitefinity;
 using Telerik.Sitefinity.Abstractions;
+using Telerik.Sitefinity.Configuration;
 using Telerik.Sitefinity.Modules.Pages;
 using Telerik.Sitefinity.Pages.Model;
 using Telerik.Sitefinity.Security;
+using Telerik.Sitefinity.Security.Configuration;
+using Telerik.Sitefinity.Security.Model;
 using Telerik.Sitefinity.Services;
+
+// Two distinct "Permission" types are in play and must not be confused:
+//   ModelPermission  = the runtime grant/deny record on an object (Grant/Deny Int32 bitmasks).
+//   ConfigPermission = the configuration element that DEFINES a permission set and its named actions.
+using ModelPermission = Telerik.Sitefinity.Security.Model.Permission;
+using ConfigPermission = Telerik.Sitefinity.Security.Configuration.Permission;
 
 namespace SitefinityCommunity.Mcp.SitefinityPlugin
 {
     /// <summary>
     /// Inspects the effective permissions on a securable Sitefinity object (a page node or a content
-    /// item): per role, which actions are granted vs denied across each permission set, and whether the
-    /// object inherits from its parent. Answers "why can't this role see/edit this?".
+    /// item) and answers the questions people actually ask: is it public? what can each role actually
+    /// do (after deny-wins resolution)? does it inherit, and from where? — and, on request, a direct
+    /// "can &lt;principal&gt; &lt;action&gt; this?" yes/no.
     ///
-    /// The <c>Permission</c> action accessors vary across Sitefinity versions, so granted/denied actions
-    /// are read by probing several candidate member names reflectively rather than binding to one.
-    /// Read-only.
+    /// Grants/denies are stored as <c>Grant</c>/<c>Deny</c> Int32 bitmasks on each
+    /// <see cref="ModelPermission"/>; they are decoded against the set's configured
+    /// <see cref="SecurityAction"/> vocabulary (name + bit value + action type). Read-only.
     /// </summary>
     [McpApiKey]
     public class McpPermissionsService : Service
     {
         /// <summary>
-        /// GET /RestApi/mcp/permissions?Identifier=...&amp;TypeFullName=...
+        /// GET /RestApi/mcp/permissions?Identifier=...&amp;TypeFullName=...&amp;Action=...&amp;Principal=...
         /// </summary>
         public McpPermissionsResponse Get(GetObjectPermissions request)
         {
@@ -45,6 +54,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             try
             {
+                PageNode pageNode = null;
                 object securedObject;
 
                 if (!string.IsNullOrWhiteSpace(request.TypeFullName))
@@ -55,7 +65,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 else
                 {
                     response.TargetKind = "page";
-                    securedObject = ResolvePageNode(request.Identifier, response);
+                    pageNode = ResolvePageNode(request.Identifier, response);
+                    securedObject = pageNode;
                 }
 
                 if (securedObject == null)
@@ -63,26 +74,29 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     throw HttpError.NotFound("Could not resolve a securable object for '" + request.Identifier + "'.");
                 }
 
-                response.TargetTitle = ReadTitle(securedObject);
-
-                var roleNames = BuildRoleNameLookup(response);
-
-                var directCount = ReadDirectPermissionCount(securedObject);
-                response.InheritsPermissions = directCount == 0;
-
-                var permissions = ReadActivePermissions(securedObject, response);
-                foreach (var perm in permissions)
+                var secured = securedObject as ISecuredObject;
+                if (secured == null)
                 {
-                    var entry = BuildPermissionEntry(perm, roleNames);
-                    if (entry != null)
-                    {
-                        response.Permissions.Add(entry);
-                    }
+                    response.Warnings.Add("Resolved object is not securable (does not implement ISecuredObject).");
+                    return response;
                 }
 
-                response.Permissions = response.Permissions
-                    .OrderBy(p => p.PermissionSetName, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(p => p.RoleName, StringComparer.OrdinalIgnoreCase)
+                response.TargetTitle = ReadTitle(securedObject);
+                ReadInheritance(secured, pageNode, response);
+
+                AnalyzePermissions(secured, response);
+
+                response.IsAuthenticatedAccessible = response.IsAuthenticatedAccessible || response.IsPublic;
+                response.Summary = BuildSummary(response);
+
+                if (!string.IsNullOrWhiteSpace(request.Action) || !string.IsNullOrWhiteSpace(request.Principal))
+                {
+                    response.Answer = BuildAnswer(request, response);
+                }
+
+                response.Principals = response.Principals
+                    .OrderBy(p => p.PermissionSet, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(p => p.PrincipalName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
             catch (HttpError)
@@ -97,9 +111,392 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return response;
         }
 
+        // ── Inheritance ──────────────────────────────────────────────
+
+        private static void ReadInheritance(ISecuredObject secured, PageNode pageNode, McpPermissionsResponse response)
+        {
+            try
+            {
+                response.InheritsPermissions = secured.InheritsPermissions;
+                response.CanInheritPermissions = secured.CanInheritPermissions;
+            }
+            catch (Exception) { /* best-effort */ }
+
+            try
+            {
+                response.HasLocalOverrides = secured.Permissions != null && secured.Permissions.Count > 0;
+            }
+            catch (Exception) { /* best-effort */ }
+
+            try
+            {
+                response.SupportedPermissionSets = secured.SupportedPermissionSets != null
+                    ? secured.SupportedPermissionSets.ToList()
+                    : new List<string>();
+            }
+            catch (Exception) { /* best-effort */ }
+
+            // For a page that inherits, name the parent the permissions flow from.
+            if (response.InheritsPermissions && pageNode != null)
+            {
+                try
+                {
+                    var parent = pageNode.Parent;
+                    if (parent != null)
+                    {
+                        response.InheritedFrom = parent.Title ?? parent.Name ?? parent.Id.ToString();
+                    }
+                }
+                catch (Exception) { /* best-effort */ }
+            }
+        }
+
+        // ── Permission analysis (bitmask decode) ─────────────────────
+
+        private void AnalyzePermissions(ISecuredObject secured, McpPermissionsResponse response)
+        {
+            List<ModelPermission> active;
+            try
+            {
+                active = secured.GetActivePermissions().ToList();
+            }
+            catch (Exception ex)
+            {
+                response.Warnings.Add("Could not read active permissions: " + ex.Message);
+                return;
+            }
+
+            SecurityConfig securityConfig = null;
+            try
+            {
+                securityConfig = Config.Get<SecurityConfig>();
+            }
+            catch (Exception ex)
+            {
+                response.Warnings.Add("Could not load SecurityConfig: " + ex.Message);
+            }
+
+            // Resolve the well-known special principals once for public/authenticated detection.
+            var anonymousId = TryReadRoleId(() => SecurityManager.AnonymousRole);
+            var authenticatedId = TryReadRoleId(() => SecurityManager.AuthenticatedRole);
+            var ownerId = TryReadRoleId(() => SecurityManager.OwnerRole);
+
+            foreach (var group in active.GroupBy(p => p.SetName ?? string.Empty))
+            {
+                var setName = group.Key;
+                var setView = new McpPermissionSetView { SetName = setName };
+
+                var actions = LoadSetActions(securityConfig, setName, setView.Warnings);
+                setView.AvailableActions = actions.Select(a => a.Name).ToList();
+
+                var viewActionNames = new HashSet<string>(
+                    actions.Where(a => string.Equals(a.Type, "View", StringComparison.OrdinalIgnoreCase)).Select(a => a.Name),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var perm in group)
+                {
+                    var access = BuildPrincipalAccess(perm, actions, setName, anonymousId, authenticatedId, ownerId);
+                    setView.Principals.Add(access);
+                    response.Principals.Add(access);
+
+                    // Public / authenticated visibility — keyed off the special roles having an effective View.
+                    var viewEffective = access.EffectiveActions.Any(a => viewActionNames.Contains(a));
+                    if (viewEffective)
+                    {
+                        if (string.Equals(access.PrincipalName, "Everyone", StringComparison.OrdinalIgnoreCase))
+                        {
+                            response.IsPublic = true;
+                        }
+                        else if (string.Equals(access.PrincipalName, "Authenticated", StringComparison.OrdinalIgnoreCase))
+                        {
+                            response.IsAuthenticatedAccessible = true;
+                        }
+                    }
+                }
+
+                setView.Principals = setView.Principals
+                    .OrderBy(p => p.PrincipalName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                response.Sets.Add(setView);
+            }
+        }
+
+        /// <summary>
+        /// Decodes one runtime permission against the set's action vocabulary: bit-tests Grant/Deny per
+        /// action and resolves effective access (granted AND not denied). Classifies the principal and
+        /// flags administrative roles.
+        /// </summary>
+        private McpPrincipalAccess BuildPrincipalAccess(
+            ModelPermission perm, List<SecurityActionInfo> actions, string setName,
+            Guid anonymousId, Guid authenticatedId, Guid ownerId)
+        {
+            var access = new McpPrincipalAccess { PermissionSet = setName };
+
+            ClassifyPrincipal(access, perm.PrincipalId, anonymousId, authenticatedId, ownerId);
+
+            foreach (var action in actions)
+            {
+                var granted = (perm.Grant & action.Value) != 0;
+                var denied = (perm.Deny & action.Value) != 0;
+
+                if (granted)
+                {
+                    access.GrantedActions.Add(action.Name);
+                }
+
+                if (denied)
+                {
+                    access.DeniedActions.Add(action.Name);
+                }
+
+                // Deny always wins over grant.
+                if (granted && !denied)
+                {
+                    access.EffectiveActions.Add(action.Name);
+                }
+            }
+
+            if (access.IsAdministrative)
+            {
+                access.Note = "Administrative role — has full control regardless of the explicit grants shown.";
+            }
+            else if (actions.Count == 0)
+            {
+                // No configured vocabulary for this set — surface the raw bitmasks so nothing is lost.
+                access.Note = "Action vocabulary unavailable for set '" + setName + "'; raw grant=" + perm.Grant + ", deny=" + perm.Deny + ".";
+            }
+
+            return access;
+        }
+
+        private static void ClassifyPrincipal(McpPrincipalAccess access, Guid principalId, Guid anonymousId, Guid authenticatedId, Guid ownerId)
+        {
+            access.PrincipalId = principalId == Guid.Empty ? string.Empty : principalId.ToString();
+
+            try
+            {
+                access.IsAdministrative = principalId != Guid.Empty && SecurityManager.IsAdministrativeRole(principalId);
+            }
+            catch (Exception) { /* best-effort */ }
+
+            // Well-known special roles first (their friendly names anchor the public/authenticated checks).
+            if (principalId != Guid.Empty && principalId == anonymousId)
+            {
+                access.PrincipalType = "SpecialRole";
+                access.PrincipalName = "Everyone";
+                return;
+            }
+
+            if (principalId != Guid.Empty && principalId == authenticatedId)
+            {
+                access.PrincipalType = "SpecialRole";
+                access.PrincipalName = "Authenticated";
+                return;
+            }
+
+            if (principalId != Guid.Empty && principalId == ownerId)
+            {
+                access.PrincipalType = "SpecialRole";
+                access.PrincipalName = "Owner";
+                return;
+            }
+
+            string name = null;
+            try
+            {
+                name = SecurityManager.GetPrincipalName(principalId);
+            }
+            catch (Exception) { /* best-effort */ }
+
+            access.PrincipalName = !string.IsNullOrEmpty(name)
+                ? name
+                : (principalId == Guid.Empty ? "(none)" : principalId.ToString());
+
+            try
+            {
+                if (SecurityManager.IsPrincipalRole(principalId))
+                {
+                    access.PrincipalType = "Role";
+                }
+                else if (SecurityManager.IsPrincipalUser(principalId))
+                {
+                    access.PrincipalType = "User";
+                }
+                else
+                {
+                    access.PrincipalType = "Unknown";
+                }
+            }
+            catch (Exception)
+            {
+                access.PrincipalType = "Unknown";
+            }
+        }
+
+        /// <summary>
+        /// Loads a permission set's action vocabulary from SecurityConfig: each
+        /// <see cref="SecurityAction"/> carries its name, action type, and the bit value used in the
+        /// Grant/Deny masks. Empty (with a warning) when the set isn't configured.
+        /// </summary>
+        private static List<SecurityActionInfo> LoadSetActions(SecurityConfig securityConfig, string setName, List<string> warnings)
+        {
+            var list = new List<SecurityActionInfo>();
+
+            if (securityConfig == null || string.IsNullOrEmpty(setName))
+            {
+                return list;
+            }
+
+            ConfigPermission setConfig = null;
+            try
+            {
+                setConfig = securityConfig.Permissions[setName];
+            }
+            catch (Exception)
+            {
+                setConfig = null;
+            }
+
+            if (setConfig == null || setConfig.Actions == null)
+            {
+                warnings.Add("No configured action vocabulary for permission set '" + setName + "'.");
+                return list;
+            }
+
+            try
+            {
+                foreach (SecurityAction action in setConfig.Actions)
+                {
+                    list.Add(new SecurityActionInfo
+                    {
+                        Name = action.Name,
+                        Type = action.Type.ToString(),
+                        Value = action.Value,
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings.Add("Could not enumerate actions for set '" + setName + "': " + ex.Message);
+            }
+
+            return list;
+        }
+
+        // ── Direct answer ────────────────────────────────────────────
+
+        private static McpAccessAnswer BuildAnswer(GetObjectPermissions request, McpPermissionsResponse response)
+        {
+            var answer = new McpAccessAnswer { Principal = request.Principal, Action = request.Action };
+
+            // Action only → who can do it?
+            if (string.IsNullOrWhiteSpace(request.Principal))
+            {
+                var whoCan = response.Principals
+                    .Where(p => HasAction(p, request.Action))
+                    .Select(p => p.PrincipalName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                answer.Allowed = whoCan.Count > 0;
+                answer.Reason = whoCan.Count > 0
+                    ? "'" + request.Action + "' is effectively granted to: " + string.Join(", ", whoCan) + "."
+                    : "No principal has '" + request.Action + "' effectively granted on this object.";
+                return answer;
+            }
+
+            var matches = response.Principals
+                .Where(p => string.Equals(p.PrincipalName, request.Principal, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(p.PrincipalId, request.Principal, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (matches.Count == 0)
+            {
+                answer.Allowed = false;
+                answer.Reason = "No permission entry for principal '" + request.Principal +
+                    "' on this object (default deny). It may still have access via an administrative role.";
+                return answer;
+            }
+
+            // Principal only → list its effective actions.
+            if (string.IsNullOrWhiteSpace(request.Action))
+            {
+                var effective = matches.SelectMany(p => p.EffectiveActions).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                answer.Allowed = effective.Count > 0;
+                answer.Reason = effective.Count > 0
+                    ? "Effective actions: " + string.Join(", ", effective) + "."
+                    : "No effective actions (default deny).";
+                return answer;
+            }
+
+            // Both → crisp yes/no with the reason.
+            var admin = matches.FirstOrDefault(p => p.IsAdministrative);
+            var granting = matches.FirstOrDefault(p => HasAction(p, request.Action));
+            var denying = matches.FirstOrDefault(p => p.DeniedActions.Any(a => string.Equals(a, request.Action, StringComparison.OrdinalIgnoreCase)));
+
+            if (admin != null)
+            {
+                answer.Allowed = true;
+                answer.Reason = "'" + admin.PrincipalName + "' is an administrative role with full control.";
+            }
+            else if (granting != null)
+            {
+                answer.Allowed = true;
+                answer.Reason = "'" + request.Action + "' is granted and not denied in set '" + granting.PermissionSet + "'.";
+            }
+            else if (denying != null)
+            {
+                answer.Allowed = false;
+                answer.Reason = "'" + request.Action + "' is explicitly denied in set '" + denying.PermissionSet + "'.";
+            }
+            else
+            {
+                answer.Allowed = false;
+                answer.Reason = "'" + request.Action + "' is not granted to '" + request.Principal + "' (default deny).";
+            }
+
+            return answer;
+        }
+
+        private static bool HasAction(McpPrincipalAccess access, string action)
+        {
+            return access.EffectiveActions.Any(a => string.Equals(a, action, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string BuildSummary(McpPermissionsResponse response)
+        {
+            var parts = new List<string>();
+
+            if (response.IsPublic)
+            {
+                parts.Add("Publicly viewable (Everyone)");
+            }
+            else if (response.IsAuthenticatedAccessible)
+            {
+                parts.Add("Viewable by any authenticated user");
+            }
+            else
+            {
+                parts.Add("Restricted (not public)");
+            }
+
+            if (response.InheritsPermissions)
+            {
+                parts.Add("inherits permissions" + (string.IsNullOrEmpty(response.InheritedFrom) ? string.Empty : " from '" + response.InheritedFrom + "'"));
+            }
+            else
+            {
+                parts.Add("has its own permissions");
+            }
+
+            parts.Add(response.Principals.Count + " principal(s) across " + response.Sets.Count + " set(s)");
+
+            return string.Join("; ", parts) + ".";
+        }
+
         // ── Object resolution ────────────────────────────────────────
 
-        private object ResolvePageNode(string identifier, McpPermissionsResponse response)
+        private PageNode ResolvePageNode(string identifier, McpPermissionsResponse response)
         {
             var pageManager = PageManager.GetManager();
             pageManager.Provider.SuppressSecurityChecks = true;
@@ -235,175 +632,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return null;
         }
 
-        // ── Permission reading (reflection — version tolerant) ───────
+        // ── Reflection helpers ───────────────────────────────────────
 
-        private IEnumerable<object> ReadActivePermissions(object securedObject, McpPermissionsResponse response)
-        {
-            // ISecuredObject.GetActivePermissions() returns the effective (incl. inherited) set.
-            foreach (var methodName in new[] { "GetActivePermissions", "GetPermissions" })
-            {
-                try
-                {
-                    var method = securedObject.GetType().GetMethod(methodName,
-                        BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-
-                    if (method != null)
-                    {
-                        var result = method.Invoke(securedObject, null) as IEnumerable;
-                        if (result != null)
-                        {
-                            return result.Cast<object>().ToList();
-                        }
-                    }
-                }
-                catch (Exception) { /* try next */ }
-            }
-
-            response.Warnings.Add("Could not read active permissions (GetActivePermissions not available on this object).");
-            return Enumerable.Empty<object>();
-        }
-
-        private static int ReadDirectPermissionCount(object securedObject)
+        private static Guid TryReadRoleId(Func<RoleInfo> getter)
         {
             try
             {
-                var prop = securedObject.GetType().GetProperty("Permissions", BindingFlags.Public | BindingFlags.Instance);
-                var value = prop != null ? prop.GetValue(securedObject, null) as IEnumerable : null;
-
-                if (value != null)
-                {
-                    return value.Cast<object>().Count();
-                }
+                var role = getter();
+                return role != null ? role.Id : Guid.Empty;
             }
-            catch (Exception) { /* best-effort */ }
-
-            return -1; // unknown
+            catch (Exception)
+            {
+                return Guid.Empty;
+            }
         }
-
-        private static McpPermissionEntry BuildPermissionEntry(object perm, Dictionary<Guid, string> roleNames)
-        {
-            if (perm == null)
-            {
-                return null;
-            }
-
-            var setName = ReadStringMember(perm, "SetName") ?? string.Empty;
-            var principalId = ReadGuidMember(perm, "PrincipalId");
-
-            var entry = new McpPermissionEntry
-            {
-                PermissionSetName = setName,
-                RoleId = principalId == Guid.Empty ? string.Empty : principalId.ToString(),
-                GrantedActions = ReadActionList(perm, new[] { "GrantedActions", "GrantedPermissions", "AllowedActions", "Grant", "GrantedActionsList" }),
-                DeniedActions = ReadActionList(perm, new[] { "DeniedActions", "DeniedPermissions", "Deny", "DeniedActionsList" }),
-            };
-
-            string roleName;
-            if (principalId != Guid.Empty && roleNames.TryGetValue(principalId, out roleName))
-            {
-                entry.RoleName = roleName;
-            }
-            else
-            {
-                entry.RoleName = principalId == Guid.Empty ? string.Empty : "(unresolved principal " + principalId + ")";
-            }
-
-            return entry;
-        }
-
-        /// <summary>
-        /// Reads an action set from a Permission, accepting either a delimited string ("View,Modify")
-        /// or an IEnumerable of action names — whichever the host version exposes.
-        /// </summary>
-        private static List<string> ReadActionList(object perm, string[] candidateMembers)
-        {
-            foreach (var name in candidateMembers)
-            {
-                try
-                {
-                    var prop = perm.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-                    if (prop == null)
-                    {
-                        continue;
-                    }
-
-                    var value = prop.GetValue(perm, null);
-                    if (value == null)
-                    {
-                        continue;
-                    }
-
-                    if (value is string s)
-                    {
-                        if (string.IsNullOrWhiteSpace(s))
-                        {
-                            continue;
-                        }
-
-                        return s.Split(new[] { ',', ';', ' ', '|' }, StringSplitOptions.RemoveEmptyEntries)
-                            .Select(x => x.Trim())
-                            .Where(x => x.Length > 0)
-                            .ToList();
-                    }
-
-                    if (value is IEnumerable en)
-                    {
-                        var list = en.Cast<object>()
-                            .Where(o => o != null)
-                            .Select(o => o.ToString())
-                            .Where(x => !string.IsNullOrWhiteSpace(x))
-                            .ToList();
-
-                        if (list.Count > 0)
-                        {
-                            return list;
-                        }
-                    }
-                }
-                catch (Exception) { /* try next candidate */ }
-            }
-
-            return new List<string>();
-        }
-
-        // ── Role name resolution ─────────────────────────────────────
-
-        private static Dictionary<Guid, string> BuildRoleNameLookup(McpPermissionsResponse response)
-        {
-            var lookup = new Dictionary<Guid, string>();
-
-            // Default provider (custom roles) + AppRoles (built-in: Administrators, Everyone, ...).
-            foreach (var providerName in new string[] { null, "AppRoles" })
-            {
-                try
-                {
-                    var manager = providerName == null
-                        ? RoleManager.GetManager()
-                        : RoleManager.GetManager(providerName);
-
-                    foreach (var role in manager.GetRoles())
-                    {
-                        try
-                        {
-                            if (role != null && !lookup.ContainsKey(role.Id))
-                            {
-                                lookup[role.Id] = role.Name ?? role.Id.ToString();
-                            }
-                        }
-                        catch (Exception) { /* skip role */ }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    response.Warnings.Add("Could not enumerate roles" +
-                        (providerName != null ? " (" + providerName + ")" : string.Empty) + ": " + ex.Message);
-                }
-            }
-
-            return lookup;
-        }
-
-        // ── Generic reflection helpers ───────────────────────────────
 
         private static string ReadTitle(object obj)
         {
@@ -431,31 +673,6 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             {
                 return null;
             }
-        }
-
-        private static Guid ReadGuidMember(object obj, string name)
-        {
-            try
-            {
-                var prop = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-                var val = prop != null ? prop.GetValue(obj, null) : null;
-
-                if (val is Guid g)
-                {
-                    return g;
-                }
-
-                Guid parsed;
-                if (val != null && Guid.TryParse(val.ToString(), out parsed))
-                {
-                    return parsed;
-                }
-            }
-            catch (Exception)
-            {
-            }
-
-            return Guid.Empty;
         }
 
         private static Type ResolveClrType(string typeFullName)
@@ -512,6 +729,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 }
             }
             catch (Exception) { /* best-effort */ }
+        }
+
+        /// <summary>Flattened description of one configured security action (name + type + bit value).</summary>
+        private sealed class SecurityActionInfo
+        {
+            public string Name { get; set; }
+            public string Type { get; set; }
+            public int Value { get; set; }
         }
     }
 }
