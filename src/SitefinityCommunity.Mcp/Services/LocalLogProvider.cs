@@ -11,13 +11,11 @@ namespace SitefinityCommunity.Mcp.Services;
 public sealed class LocalLogProvider : ILogProvider
 {
     private readonly string _logsPath;
-    private readonly bool _allowRawSecrets;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(5);
 
-    public LocalLogProvider(string logsPath, bool allowRawSecrets = false)
+    public LocalLogProvider(string logsPath)
     {
         this._logsPath = logsPath;
-        this._allowRawSecrets = allowRawSecrets;
 
         if (!Directory.Exists(logsPath))
         {
@@ -58,7 +56,7 @@ public sealed class LocalLogProvider : ILogProvider
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync(ct);
-            return this._allowRawSecrets ? content : SecretRedactor.Redact(content);
+            return SecretRedactor.Redact(content);
         }
         catch (IOException ex)
         {
@@ -90,21 +88,20 @@ public sealed class LocalLogProvider : ILogProvider
             .ThenBy(r => r.LineNumber)
             .ToList();
 
-        if (!this._allowRawSecrets)
+        // Always redact — a raw secret in the LLM context is a leak (it can be logged, cached, or
+        // absorbed into model training data), so there is intentionally no opt-out, even on dev.
+        foreach (var r in flat)
         {
-            foreach (var r in flat)
+            r.MatchedLine = SecretRedactor.Redact(r.MatchedLine);
+
+            for (var i = 0; i < r.ContextBefore.Count; i++)
             {
-                r.MatchedLine = SecretRedactor.Redact(r.MatchedLine);
+                r.ContextBefore[i] = SecretRedactor.Redact(r.ContextBefore[i]);
+            }
 
-                for (var i = 0; i < r.ContextBefore.Count; i++)
-                {
-                    r.ContextBefore[i] = SecretRedactor.Redact(r.ContextBefore[i]);
-                }
-
-                for (var i = 0; i < r.ContextAfter.Count; i++)
-                {
-                    r.ContextAfter[i] = SecretRedactor.Redact(r.ContextAfter[i]);
-                }
+            for (var i = 0; i < r.ContextAfter.Count; i++)
+            {
+                r.ContextAfter[i] = SecretRedactor.Redact(r.ContextAfter[i]);
             }
         }
 

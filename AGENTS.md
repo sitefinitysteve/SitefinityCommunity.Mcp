@@ -136,7 +136,6 @@ The server communicates via stdio (stdin/stdout) using the MCP protocol. All log
             "url": "https://dev.example.com",
             "logsPath": "C:\\Path\\To\\App_Data\\Sitefinity\\Logs",
             "sitefinityApiKey": "must-match-sitefinity-config",
-            "allowRawSecrets": true,
             "allowWriteOperations": true
         },
         "staging": {
@@ -150,8 +149,9 @@ The server communicates via stdio (stdin/stdout) using the MCP protocol. All log
 - **`sitefinityApiKey`** — Required for every environment. Must match the key in Sitefinity Admin > Settings > Advanced > McpSettings
 - **`logsPath`** — When set, reads logs directly from filesystem (local mode). When omitted, uses HTTP via the plugin (remote mode)
 - **`url`** — Required. The Sitefinity site URL
-- **`allowRawSecrets`** — Optional (default false). Disables secret redaction for **logs only**. Ignored for prod-like names. Local dev only. (The config reader always redacts credentials regardless of this flag.)
 - **`allowWriteOperations`** — Optional (default false). Permits `sitefinity_clear_cache` / `sitefinity_recycle_app`. Ignored for prod-like names. Also requires "Allow Write Operations" enabled in the Sitefinity admin.
+
+> Note: there is **no** flag to disable secret redaction. Logs and config dumps always redact credentials in every environment, including dev.
 
 ## How to Add a New Tool
 
@@ -319,9 +319,9 @@ Redaction has two layers:
 1. **Field-name deny-list** — exact matches (`password`, `apikey`, `token`, `authorization`, …) and substring fragments (`*secret*`, `*password*`) replace the whole value with `[REDACTED]`.
 2. **Value-pattern scanner** — regex matches for JWTs, bearer headers, AWS/GitHub/Slack/OpenAI tokens, Azure storage keys, connection-string passwords, App Insights instrumentation keys.
 
-**Opt-in raw mode (logs only):** `allowRawSecrets: true` in a per-environment config block disables log redaction for that environment. Environments named `prod` / `production` ignore the flag and always redact (misconfiguration guard). `LogProviderFactory` threads the flag into `LocalLogProvider` via `config.EffectiveAllowRawSecrets(name)`.
+**Redaction is UNCONDITIONAL everywhere — there is no opt-out.** Logs (`LocalLogProvider.ReadFileAsync` / `SearchAsync`) always run through `SecretRedactor.Redact` in every environment, including dev. There is intentionally no `allowRawSecrets` flag — a raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data).
 
-**Config reader is UNCONDITIONAL (no opt-out):** the config dump (`/mcp/config/{SectionName}`) **always** redacts anything credential-shaped — `[SecretData]`/encrypted properties, connection strings, and any path/leaf name containing key/secret/token/password/etc. — in **every** environment including dev. `allowRawSecrets` does **not** apply to it; there is no flag to reveal config secrets. A raw secret/key/password in the LLM context is a leak (it can be logged, cached, or absorbed into training data), so `McpConfigService.BuildEntry` over-redacts deliberately.
+**Config reader is UNCONDITIONAL (no opt-out):** the config dump (`/mcp/config/{SectionName}`) **always** redacts anything credential-shaped — `[SecretData]`/encrypted properties, connection strings, and any path/leaf name containing key/secret/token/password/etc. — in **every** environment including dev. There is no flag to reveal config secrets. A raw secret/key/password in the LLM context is a leak (it can be logged, cached, or absorbed into training data), so `McpConfigService.BuildEntry` over-redacts deliberately.
 
 **Write operations (cache clear / recycle):** `sitefinity_clear_cache` / `sitefinity_recycle_app` are gated on both sides — per-environment `allowWriteOperations` (prod-guarded `EffectiveAllowWriteOperations`) on the server, and `McpConfig.AllowWriteOperations` (admin switch, HTTP 403 when off) in the plugin. Both must opt in.
 
