@@ -102,12 +102,14 @@ public sealed class EnvironmentConfig
     public string SitefinityApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// When true, disables secret redaction for this environment's responses (logs, widget properties, etc.).
-    /// Ignored for environments whose name starts with "prod" (case-insensitive) — those always redact.
-    /// Default: false. Set to true only for dev environments where you need raw values for debugging.
+    /// When true, permits state-changing tools (clear cache, recycle app pool) to run against this
+    /// environment. Ignored for environments whose name starts with "prod" (case-insensitive) — those
+    /// always refuse write operations as a misconfiguration guard.
+    /// Default: false. The Sitefinity plugin enforces a matching server-side switch
+    /// (Admin > Advanced > McpSettings > Allow Write Operations), so both layers must opt in.
     /// </summary>
-    [JsonPropertyName("allowRawSecrets")]
-    public bool AllowRawSecrets { get; set; }
+    [JsonPropertyName("allowWriteOperations")]
+    public bool AllowWriteOperations { get; set; }
 
     /// <summary>
     /// Whether this environment uses local filesystem log access.
@@ -116,8 +118,9 @@ public sealed class EnvironmentConfig
     public bool IsLocalMode => !string.IsNullOrWhiteSpace(this.LogsPath);
 
     /// <summary>
-    /// True when redaction should be skipped for this environment. Always false for prod-like environments.
+    /// True when state-changing (write) tools may target this environment. Always false for prod-like
+    /// environments regardless of the configured flag.
     /// </summary>
-    public bool EffectiveAllowRawSecrets(string environmentName) =>
-        this.AllowRawSecrets && !environmentName.StartsWith("prod", StringComparison.OrdinalIgnoreCase);
+    public bool EffectiveAllowWriteOperations(string environmentName) =>
+        this.AllowWriteOperations && !environmentName.StartsWith("prod", StringComparison.OrdinalIgnoreCase);
 }

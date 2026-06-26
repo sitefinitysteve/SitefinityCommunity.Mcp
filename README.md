@@ -269,7 +269,7 @@ These three tools give the LLM direct visibility into real content, templates, a
 
 ### Secret Redaction
 
-Every string returned by log tools, widget tools, form response tools, and list_content flows through a deny-list + pattern scanner. Values keyed by `Password`, `ApiKey`, `Secret`, etc. become `[REDACTED]`; embedded JWTs, AWS keys, GitHub PATs, Slack tokens, OpenAI keys, Azure connection strings, and `Password=...` connection-string fragments are replaced with `[REDACTED:<kind>]` tags. For dev debugging you can set `"allowRawSecrets": true` on a non-prod environment in `sitefinity-mcp.json` — environments whose name starts with `prod` always redact regardless.
+Every string returned by log tools, widget tools, form response tools, the config reader, and list_content flows through a deny-list + pattern scanner. Values keyed by `Password`, `ApiKey`, `Secret`, etc. become `[REDACTED]`; embedded JWTs, AWS keys, GitHub PATs, Slack tokens, OpenAI keys, Azure connection strings, and `Password=...` connection-string fragments are replaced with `[REDACTED:<kind>]` tags. **Redaction is unconditional — there is no flag to disable it, in any environment including dev.** A raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so the server never emits one.
 
 ---
 

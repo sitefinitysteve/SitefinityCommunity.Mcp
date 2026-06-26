@@ -224,6 +224,90 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             ?? new FormResponsesResponse { FormId = formIdentifier, Take = take, Skip = skip };
     }
 
+    public async Task<ConfigSectionsResponse> ListConfigSectionsAsync(string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var response = await client.GetAsync("/RestApi/mcp/config?format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<ConfigSectionsResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new ConfigSectionsResponse();
+    }
+
+    public async Task<ConfigSectionResponse> GetConfigSectionAsync(
+        string sectionName, string? environment = null, CancellationToken ct = default)
+    {
+        // Credential-like config values (keys, passwords, connection strings, [SecretData] / encrypted
+        // properties) are ALWAYS redacted on the plugin side — there is intentionally no flag to reveal
+        // them, in any environment. A raw secret in the LLM context is a leak.
+        var client = CreateClient(environment);
+        var encoded = Uri.EscapeDataString(sectionName);
+        var response = await client.GetAsync($"/RestApi/mcp/config/{encoded}?format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<ConfigSectionResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new ConfigSectionResponse { SectionName = sectionName };
+    }
+
+    public async Task<WhereUsedResponse> WhereUsedAsync(
+        string query, string? kind = null, string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var encoded = Uri.EscapeDataString(query);
+        var kindQuery = string.IsNullOrEmpty(kind) ? string.Empty : $"&Kind={Uri.EscapeDataString(kind)}";
+        var response = await client.GetAsync($"/RestApi/mcp/where-used?Query={encoded}{kindQuery}&format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<WhereUsedResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new WhereUsedResponse { Query = query };
+    }
+
+    public async Task<PermissionsResponse> GetPermissionsAsync(
+        string identifier, string? typeFullName = null, string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var encoded = Uri.EscapeDataString(identifier);
+        var typeQuery = string.IsNullOrEmpty(typeFullName)
+            ? string.Empty
+            : $"&TypeFullName={Uri.EscapeDataString(typeFullName)}";
+        var response = await client.GetAsync($"/RestApi/mcp/permissions?Identifier={encoded}{typeQuery}&format=json", ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<PermissionsResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new PermissionsResponse { Target = identifier };
+    }
+
+    public async Task<MaintenanceResponse> ClearCacheAsync(
+        string? scope = null, string? pageIdentifier = null, string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var scopeQuery = string.IsNullOrEmpty(scope) ? string.Empty : $"&Scope={Uri.EscapeDataString(scope)}";
+        var pageQuery = string.IsNullOrEmpty(pageIdentifier)
+            ? string.Empty
+            : $"&PageIdentifier={Uri.EscapeDataString(pageIdentifier)}";
+        var response = await client.PostAsync($"/RestApi/mcp/cache/clear?format=json{scopeQuery}{pageQuery}", null, ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<MaintenanceResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new MaintenanceResponse { Operation = "clear-cache" };
+    }
+
+    public async Task<MaintenanceResponse> RecycleApplicationAsync(string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var response = await client.PostAsync("/RestApi/mcp/app/recycle?format=json", null, ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<MaintenanceResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new MaintenanceResponse { Operation = "recycle" };
+    }
+
     private HttpClient CreateClient(string? environment)
     {
         var (_, config) = this._resolver.Resolve(environment);

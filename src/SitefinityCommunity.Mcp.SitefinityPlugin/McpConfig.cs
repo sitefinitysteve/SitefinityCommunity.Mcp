@@ -32,5 +32,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             get { return (bool)this["Enabled"]; }
             set { this["Enabled"] = value; }
         }
+
+        [ObjectInfo(Title = "Allow Write Operations", Description = "Permit state-changing MCP tools (clear cache, recycle application). When false, those endpoints are refused even with a valid API key. Read-only tools are unaffected. Leave OFF unless you intend to let the MCP server clear caches or recycle this instance.")]
+        [ConfigurationProperty("AllowWriteOperations", DefaultValue = false)]
+        public bool AllowWriteOperations
+        {
+            get { return (bool)this["AllowWriteOperations"]; }
+            set { this["AllowWriteOperations"] = value; }
+        }
     }
 }

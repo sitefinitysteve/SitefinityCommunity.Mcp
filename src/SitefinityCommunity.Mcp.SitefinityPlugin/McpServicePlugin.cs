@@ -20,6 +20,10 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             appHost.RegisterService(typeof(McpMetadataService));
             appHost.RegisterService(typeof(McpContentService));
             appHost.RegisterService(typeof(McpFormsService));
+            appHost.RegisterService(typeof(McpConfigService));
+            appHost.RegisterService(typeof(McpWhereUsedService));
+            appHost.RegisterService(typeof(McpPermissionsService));
+            appHost.RegisterService(typeof(McpMaintenanceService));
         }
     }
 }

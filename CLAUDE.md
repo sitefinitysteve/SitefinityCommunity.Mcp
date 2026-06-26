@@ -86,7 +86,11 @@ SitefinityCommunity.Mcp/
     │   │   ├── ContentTools.cs        ← list_content
     │   │   ├── TemplateTools.cs       ← list_templates
     │   │   ├── TaxonomyTools.cs       ← list_taxonomies
-    │   │   └── FormTools.cs           ← list_forms, get_form_fields, list_form_responses
+    │   │   ├── FormTools.cs           ← list_forms, get_form_fields, list_form_responses
+    │   │   ├── ConfigTools.cs         ← list_config_sections, get_config_section
+    │   │   ├── WhereUsedTools.cs      ← where_used (reverse lookup)
+    │   │   ├── PermissionTools.cs     ← get_permissions
+    │   │   └── MaintenanceTools.cs    ← clear_cache, recycle_app (WRITE; gated)
     │   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
     │   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
     │   └── Docs/                      ← Embedded resource files
@@ -102,7 +106,11 @@ SitefinityCommunity.Mcp/
         ├── McpMetadataService.cs      ← ServiceStack service handlers (site info, modules, types, widget tree, templates, taxonomies)
         ├── McpContentService.cs       ← ServiceStack service handler (live content queries)
         ├── McpFormsService.cs         ← ServiceStack service handlers (forms + responses)
-        ├── McpSecretRedactor.cs       ← .NET 4.8 mirror of SecretRedactor (scrubs forms/widgets)
+        ├── McpConfigService.cs        ← ServiceStack service handlers (config section reader; redacted)
+        ├── McpWhereUsedService.cs     ← ServiceStack service handler (reverse lookup)
+        ├── McpPermissionsService.cs   ← ServiceStack service handler (effective permissions)
+        ├── McpMaintenanceService.cs   ← ServiceStack service handlers (clear cache / recycle; WRITE, gated)
+        ├── McpSecretRedactor.cs       ← .NET 4.8 mirror of SecretRedactor (scrubs forms/widgets/config)
         └── README.md                  ← Plugin installation guide
 ```
 
@@ -127,7 +135,8 @@ The server communicates via stdio (stdin/stdout) using the MCP protocol. All log
         "dev": {
             "url": "https://dev.example.com",
             "logsPath": "C:\\Path\\To\\App_Data\\Sitefinity\\Logs",
-            "sitefinityApiKey": "must-match-sitefinity-config"
+            "sitefinityApiKey": "must-match-sitefinity-config",
+            "allowWriteOperations": true
         },
         "staging": {
             "url": "https://staging.example.com",
@@ -140,6 +149,9 @@ The server communicates via stdio (stdin/stdout) using the MCP protocol. All log
 - **`sitefinityApiKey`** — Required for every environment. Must match the key in Sitefinity Admin > Settings > Advanced > McpSettings
 - **`logsPath`** — When set, reads logs directly from filesystem (local mode). When omitted, uses HTTP via the plugin (remote mode)
 - **`url`** — Required. The Sitefinity site URL
+- **`allowWriteOperations`** — Optional (default false). Permits `sitefinity_clear_cache` / `sitefinity_recycle_app`. Ignored for prod-like names. Also requires "Allow Write Operations" enabled in the Sitefinity admin.
+
+> Note: there is **no** flag to disable secret redaction. Logs and config dumps always redact credentials in every environment, including dev.
 
 ## How to Add a New Tool
 
@@ -307,9 +319,20 @@ Redaction has two layers:
 1. **Field-name deny-list** — exact matches (`password`, `apikey`, `token`, `authorization`, …) and substring fragments (`*secret*`, `*password*`) replace the whole value with `[REDACTED]`.
 2. **Value-pattern scanner** — regex matches for JWTs, bearer headers, AWS/GitHub/Slack/OpenAI tokens, Azure storage keys, connection-string passwords, App Insights instrumentation keys.
 
-**Opt-in raw mode:** `allowRawSecrets: true` in a per-environment config block disables redaction for that environment. Environments named `prod` / `production` ignore the flag and always redact (misconfiguration guard). `LogProviderFactory` threads the flag into `LocalLogProvider` via `config.EffectiveAllowRawSecrets(name)`.
+**Redaction is UNCONDITIONAL everywhere — there is no opt-out.** Logs (`LocalLogProvider.ReadFileAsync` / `SearchAsync`) always run through `SecretRedactor.Redact` in every environment, including dev. There is intentionally no `allowRawSecrets` flag — a raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so the server never emits one.
 
-**Important:** any new tool returning user-authored content (widget properties, content fields, form submissions, logs) must route string values through the redactor on the side closest to the data source.
+**Config reader is UNCONDITIONAL (no opt-out):** the config dump (`/mcp/config/{SectionName}`) **always** redacts anything credential-shaped — `[SecretData]`/encrypted properties, connection strings, and any path/leaf name containing key/secret/token/password/etc. — in **every** environment including dev. There is no flag to reveal config secrets. A raw secret/key/password in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so `McpConfigService.BuildEntry` over-redacts deliberately.
+
+**Important:** any new tool returning user-authored content (widget properties, content fields, form submissions, logs, config values) must route string values through the redactor on the side closest to the data source. Credentials/keys/passwords must never reach the LLM in raw form, regardless of environment.
+
+### Write Operations (Cache Clear / Recycle)
+
+The only state-changing tools (`sitefinity_clear_cache`, `sitefinity_recycle_app`) are gated on **both** sides and never run by default:
+
+1. **MCP server side** — per-environment `allowWriteOperations: true` in `sitefinity-mcp.json`. `EnvironmentConfig.EffectiveAllowWriteOperations(name)` is prod-guarded (always false for names starting with `prod`). `MaintenanceTools` refuses before any network call when this is false.
+2. **Plugin side** — `McpConfig.AllowWriteOperations` (Admin > Advanced > McpSettings > "Allow Write Operations", default false). `McpMaintenanceService.EnsureWriteAllowed()` returns HTTP 403 when off.
+
+Both must opt in. Cache APIs vary across Sitefinity versions, so `McpMaintenanceService` invokes `ClearWholeCache` / `CacheDependency.Notify` / `RestartApplication` **reflectively** and reports in the response exactly what it managed to do.
 
 ## Available Services (for DI)
 
@@ -321,7 +344,7 @@ Redaction has two layers:
 | `LogParsingService` | (concrete) | Parse Sitefinity log format into structured entries |
 | `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped; `WaitForReadyAsync` polls until ready or timeout |
 | `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint |
-| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields |
+| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions; clear cache / recycle |
 | `IHttpClientFactory` | (framework) | Create HTTP clients for remote calls |
 | `SitefinityMcpConfig` | (concrete) | Loaded config singleton |
 
@@ -353,6 +376,12 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/forms` | GET | List all forms with metadata counts |
 | `/mcp/forms/{FormIdentifier}/fields` | GET | Field definitions for a form. Optional `Debug=true` to include a raw Properties/ChildProperties tree dump for diagnosing empty Name/Title on unfamiliar Sitefinity versions |
 | `/mcp/forms/{FormIdentifier}/responses` | GET | Paged form submissions (secret-redacted). Optional `SearchTerm` filters to entries where any field value (or IP / UserAgent) contains the term (case-insensitive; matching runs **after** redaction so sensitive values cannot leak via search). Response includes `TotalCount` (all entries), `MatchedCount` (after filter), and echoes `SearchTerm` |
+| `/mcp/config` | GET | List all registered configuration section names (discovered by scanning `ConfigSection`-derived types in the AppDomain) |
+| `/mcp/config/{SectionName}` | GET | Flattened dump of a config section. Credential-like values (keys, passwords, connection strings, tokens, `[SecretData]`/encrypted properties) are **ALWAYS redacted** and never returned — in every environment, with no flag to reveal them |
+| `/mcp/where-used` | GET | Reverse lookup: every page/template referencing a widget type, content item, or template (requires `Query`; optional `Kind`=widget\|content\|template) |
+| `/mcp/permissions` | GET | Effective per-role granted/denied actions on a page or content item, and whether it inherits (requires `Identifier`; optional `TypeFullName` for a content item) |
+| `/mcp/cache/clear` | POST | **Write.** Clear cache: `Scope`=output\|whole\|page (`PageIdentifier` required for page). Refused (403) unless `AllowWriteOperations` is enabled in admin |
+| `/mcp/app/recycle` | POST | **Write.** Restart the Sitefinity application (`SystemManager.RestartApplication`). Refused (403) unless `AllowWriteOperations` is enabled in admin |
 
 ## Coding Conventions
 

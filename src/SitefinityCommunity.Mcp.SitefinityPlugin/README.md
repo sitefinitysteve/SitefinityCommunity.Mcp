@@ -36,10 +36,17 @@ SitefinityWebApp/
 │           ├── McpInit.cs
 │           ├── McpConfig.cs
 │           ├── McpApiKeyAttribute.cs
+│           ├── McpSecretRedactor.cs
 │           ├── McpServicePlugin.cs
 │           ├── McpLogService.cs
 │           ├── McpLogRequest.cs
-│           └── McpMetadataService.cs
+│           ├── McpMetadataService.cs
+│           ├── McpContentService.cs
+│           ├── McpFormsService.cs
+│           ├── McpConfigService.cs
+│           ├── McpWhereUsedService.cs
+│           ├── McpPermissionsService.cs
+│           └── McpMaintenanceService.cs
 ├── Global.asax.cs
 └── ...
 ```
@@ -61,6 +68,7 @@ That's it — this registers the config section and all ServiceStack endpoints.
 1. Go to **Administration → Settings → Advanced → McpSettings**
 2. Set the **API Key** (must match `sitefinityApiKey` in your `sitefinity-mcp.json`)
 3. **Enabled** is `true` by default — set to `false` to disable endpoints
+4. **Allow Write Operations** is `false` by default. Enable it only if you want the MCP server to be able to clear caches or recycle this instance (`/mcp/cache/clear`, `/mcp/app/recycle`). Leave OFF on production.
 
 ### 4. Verify
 
@@ -88,8 +96,14 @@ Should return a JSON array of log files.
 | `/mcp/page-routes` | GET | CMS page routes via Sitemap API (cached, fast). Includes URL evaluation warnings |
 | `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
 | `/mcp/page-details?PageIdentifier={id}` | GET | Full page detail: metadata, template, all widgets with configured properties. Accepts Guid, URL path, slug, or title |
+| `/mcp/config` | GET | List registered configuration section names |
+| `/mcp/config/{SectionName}` | GET | Flattened, **redacted** dump of a config section. Keys / passwords / connection strings / `[SecretData]` values are **always** withheld (no flag reveals them, in any environment) |
+| `/mcp/where-used?Query={x}` | GET | Reverse lookup of a widget type / content item / template across pages and templates |
+| `/mcp/permissions?Identifier={x}` | GET | Effective per-role permissions on a page (or content item via `TypeFullName`) |
+| `/mcp/cache/clear` | POST | **Write** — clear cache (`Scope`=output\|whole\|page). Requires "Allow Write Operations" |
+| `/mcp/app/recycle` | POST | **Write** — restart the application. Requires "Allow Write Operations" |
 
-All endpoints require `X-MCP-API-Key` header.
+All endpoints require `X-MCP-API-Key` header. The two **write** endpoints additionally require **Allow Write Operations** to be enabled (see below) and return HTTP 403 otherwise.
 
 ## Why source files instead of a NuGet DLL?
 

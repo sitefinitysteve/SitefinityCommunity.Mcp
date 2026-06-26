@@ -507,4 +507,125 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public List<McpFormResponseInfo> Responses { get; set; } = new List<McpFormResponseInfo>();
         public List<string> Warnings { get; set; } = new List<string>();
     }
+
+    // ── Config Reader DTOs ────────────────────────────────────────────
+
+    [Route("/mcp/config", "GET")]
+    public class GetConfigSections : IReturn<McpConfigSectionsResponse>
+    {
+    }
+
+    [Route("/mcp/config/{SectionName}", "GET")]
+    public class GetConfigSection : IReturn<McpConfigSectionResponse>
+    {
+        public string SectionName { get; set; }
+    }
+
+    public class McpConfigSectionsResponse
+    {
+        public List<string> Sections { get; set; } = new List<string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpConfigEntry
+    {
+        public string Path { get; set; }
+        public string Value { get; set; }
+    }
+
+    public class McpConfigSectionResponse
+    {
+        public string SectionName { get; set; }
+        public string SectionType { get; set; }
+        public bool Found { get; set; }
+        public List<McpConfigEntry> Entries { get; set; } = new List<McpConfigEntry>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // ── Where-Used DTOs ───────────────────────────────────────────────
+
+    [Route("/mcp/where-used", "GET")]
+    public class WhereUsed : IReturn<McpWhereUsedResponse>
+    {
+        public string Query { get; set; }
+
+        /// <summary>Optional interpretation override: "widget", "content", or "template".</summary>
+        public string Kind { get; set; }
+    }
+
+    public class McpWhereUsedItem
+    {
+        public string HostKind { get; set; }
+        public string HostId { get; set; }
+        public string HostTitle { get; set; }
+        public string HostUrl { get; set; }
+        public string WidgetId { get; set; }
+        public string WidgetName { get; set; }
+        public string MatchReason { get; set; }
+    }
+
+    public class McpWhereUsedResponse
+    {
+        public string Query { get; set; }
+        public string ResolvedKind { get; set; }
+        public string ResolvedTitle { get; set; }
+        public int TotalUsages { get; set; }
+        public List<McpWhereUsedItem> Usages { get; set; } = new List<McpWhereUsedItem>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // ── Permissions Inspector DTOs ────────────────────────────────────
+
+    [Route("/mcp/permissions", "GET")]
+    public class GetObjectPermissions : IReturn<McpPermissionsResponse>
+    {
+        public string Identifier { get; set; }
+
+        /// <summary>When set, the Identifier is treated as a content item Guid of this CLR type.</summary>
+        public string TypeFullName { get; set; }
+    }
+
+    public class McpPermissionEntry
+    {
+        public string PermissionSetName { get; set; }
+        public string RoleId { get; set; }
+        public string RoleName { get; set; }
+        public List<string> GrantedActions { get; set; } = new List<string>();
+        public List<string> DeniedActions { get; set; } = new List<string>();
+    }
+
+    public class McpPermissionsResponse
+    {
+        public string Target { get; set; }
+        public string TargetKind { get; set; }
+        public string TargetTitle { get; set; }
+        public bool InheritsPermissions { get; set; }
+        public List<McpPermissionEntry> Permissions { get; set; } = new List<McpPermissionEntry>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // ── Maintenance (Write) DTOs ──────────────────────────────────────
+
+    [Route("/mcp/cache/clear", "POST")]
+    public class ClearCache : IReturn<McpMaintenanceResponse>
+    {
+        /// <summary>"output" (default), "whole", or "page".</summary>
+        public string Scope { get; set; }
+
+        /// <summary>Page identifier (Guid, URL, or title) when Scope is "page".</summary>
+        public string PageIdentifier { get; set; }
+    }
+
+    [Route("/mcp/app/recycle", "POST")]
+    public class RecycleApp : IReturn<McpMaintenanceResponse>
+    {
+    }
+
+    public class McpMaintenanceResponse
+    {
+        public string Operation { get; set; }
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
 }
