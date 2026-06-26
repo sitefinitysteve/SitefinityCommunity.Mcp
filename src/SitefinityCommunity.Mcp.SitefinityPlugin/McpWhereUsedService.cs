@@ -183,15 +183,30 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 }
             }
 
-            // Pages — frontend, non-deleted, standard content nodes.
+            // Pages — load ALL frontend non-deleted nodes once and index them by id. GetPageNodes()
+            // materializes each node's scalar UrlName/ParentId/RootNodeId, so the URL can be rebuilt by an
+            // in-memory parent-chain walk over this index (see BuildUrl) — NOT node.GetFullUrl(), which
+            // lazy-loads every ancestor from the database and was, by far, the scan's dominant cost.
+            // (Group/redirect ancestors are kept in the index so the walk can resolve them; only Standard
+            // nodes are actually scanned.)
             var backendRootId = SiteInitializer.BackendRootNodeId;
-            var nodes = pageManager.GetPageNodes()
+            var frontendNodes = pageManager.GetPageNodes()
                 .Where(p => p.RootNodeId != backendRootId && !p.IsDeleted)
-                .Where(p => p.NodeType == NodeType.Standard)
                 .ToList();
 
-            foreach (var node in nodes)
+            var nodesById = new Dictionary<Guid, PageNode>();
+            foreach (var n in frontendNodes)
             {
+                nodesById[n.Id] = n;
+            }
+
+            foreach (var node in frontendNodes)
+            {
+                if (node.NodeType != NodeType.Standard)
+                {
+                    continue;
+                }
+
                 try
                 {
                     var pageData = node.GetPageData();
@@ -206,7 +221,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     {
                         Id = node.Id,
                         Title = node.Title ?? node.Name ?? string.Empty,
-                        Url = SafeFullUrl(node),
+                        Url = BuildUrl(node, nodesById),
                         TemplateId = pageData.Template != null ? pageData.Template.Id : Guid.Empty,
                     };
                     model.Pages.Add(page);
@@ -717,28 +732,31 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return template.Name ?? template.Id.ToString();
         }
 
-        private static string SafeFullUrl(PageNode node)
+        /// <summary>
+        /// Rebuilds a page node's site URL by walking the parent chain in memory over the pre-loaded node
+        /// index. The scalar UrlName/ParentId/RootNodeId are already materialized, so this issues NO
+        /// database queries — unlike <see cref="PageNode.GetFullUrl()"/>, which lazy-loads each ancestor
+        /// and dominated the scan time. Cycle-guarded; stops at (and excludes) the site root.
+        /// </summary>
+        private static string BuildUrl(PageNode node, Dictionary<Guid, PageNode> nodesById)
         {
-            try
-            {
-                var url = node.GetFullUrl() ?? string.Empty;
+            var segments = new List<string>();
+            var rootId = node.RootNodeId;
+            var current = node;
+            var guard = 0;
 
-                if (url.StartsWith("~/"))
+            while (current != null && current.Id != rootId && guard++ < 64)
+            {
+                if (!string.IsNullOrEmpty(current.UrlName))
                 {
-                    url = url.Substring(1);
+                    segments.Insert(0, current.UrlName);
                 }
 
-                if (!string.IsNullOrEmpty(url) && !url.StartsWith("/"))
-                {
-                    url = "/" + url;
-                }
+                PageNode parent;
+                current = nodesById.TryGetValue(current.ParentId, out parent) ? parent : null;
+            }
 
-                return url;
-            }
-            catch (Exception)
-            {
-                return string.Empty;
-            }
+            return "/" + string.Join("/", segments);
         }
 
         private static string ShortName(string fullName)
