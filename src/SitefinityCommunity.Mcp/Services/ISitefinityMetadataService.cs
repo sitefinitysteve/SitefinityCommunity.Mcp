@@ -23,4 +23,10 @@ public interface ISitefinityMetadataService
     Task<FormsResponse> ListFormsAsync(string? environment = null, CancellationToken ct = default);
     Task<FormFieldsResponse> GetFormFieldsAsync(string formIdentifier, bool debug = false, string? environment = null, CancellationToken ct = default);
     Task<FormResponsesResponse> ListFormResponsesAsync(string formIdentifier, int take, int skip, string? searchTerm = null, string? environment = null, CancellationToken ct = default);
+    Task<ConfigSectionsResponse> ListConfigSectionsAsync(string? environment = null, CancellationToken ct = default);
+    Task<ConfigSectionResponse> GetConfigSectionAsync(string sectionName, string? environment = null, CancellationToken ct = default);
+    Task<WhereUsedResponse> WhereUsedAsync(string query, string? kind = null, string? environment = null, CancellationToken ct = default);
+    Task<PermissionsResponse> GetPermissionsAsync(string identifier, string? typeFullName = null, string? environment = null, CancellationToken ct = default);
+    Task<MaintenanceResponse> ClearCacheAsync(string? scope = null, string? pageIdentifier = null, string? environment = null, CancellationToken ct = default);
+    Task<MaintenanceResponse> RecycleApplicationAsync(string? environment = null, CancellationToken ct = default);
 }

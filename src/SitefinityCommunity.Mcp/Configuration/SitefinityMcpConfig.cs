@@ -110,6 +110,16 @@ public sealed class EnvironmentConfig
     public bool AllowRawSecrets { get; set; }
 
     /// <summary>
+    /// When true, permits state-changing tools (clear cache, recycle app pool) to run against this
+    /// environment. Ignored for environments whose name starts with "prod" (case-insensitive) — those
+    /// always refuse write operations as a misconfiguration guard.
+    /// Default: false. The Sitefinity plugin enforces a matching server-side switch
+    /// (Admin > Advanced > McpSettings > Allow Write Operations), so both layers must opt in.
+    /// </summary>
+    [JsonPropertyName("allowWriteOperations")]
+    public bool AllowWriteOperations { get; set; }
+
+    /// <summary>
     /// Whether this environment uses local filesystem log access.
     /// </summary>
     [JsonIgnore]
@@ -120,4 +130,11 @@ public sealed class EnvironmentConfig
     /// </summary>
     public bool EffectiveAllowRawSecrets(string environmentName) =>
         this.AllowRawSecrets && !environmentName.StartsWith("prod", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when state-changing (write) tools may target this environment. Always false for prod-like
+    /// environments regardless of the configured flag.
+    /// </summary>
+    public bool EffectiveAllowWriteOperations(string environmentName) =>
+        this.AllowWriteOperations && !environmentName.StartsWith("prod", StringComparison.OrdinalIgnoreCase);
 }
