@@ -17,7 +17,7 @@ public sealed class PermissionToolsUnitTests
     }
 
     [Fact]
-    public async Task GetPermissions_ReturnsPerRoleActions()
+    public async Task GetPermissions_ReturnsEffectiveAccessPerPrincipal()
     {
         var (tools, mock) = CreateTools();
         mock.GetPermissionsAsync("/about", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
@@ -26,22 +26,25 @@ public sealed class PermissionToolsUnitTests
                 Target = "/about",
                 TargetKind = "page",
                 TargetTitle = "About",
+                Summary = "Restricted (not public); has its own permissions; 2 principal(s) across 1 set(s).",
                 InheritsPermissions = false,
-                Permissions =
+                IsPublic = false,
+                Principals =
                 [
-                    new PermissionEntry
+                    new PrincipalAccess
                     {
-                        PermissionSetName = "Pages",
-                        RoleId = "22222222-2222-2222-2222-222222222222",
-                        RoleName = "Administrators",
+                        PermissionSet = "Pages",
+                        PrincipalName = "Administrators",
+                        PrincipalType = "Role",
+                        IsAdministrative = true,
                         GrantedActions = ["View", "Modify", "Delete"],
-                        DeniedActions = []
+                        EffectiveActions = ["View", "Modify", "Delete"]
                     },
-                    new PermissionEntry
+                    new PrincipalAccess
                     {
-                        PermissionSetName = "Pages",
-                        RoleName = "Anonymous",
-                        GrantedActions = [],
+                        PermissionSet = "Pages",
+                        PrincipalName = "Everyone",
+                        PrincipalType = "SpecialRole",
                         DeniedActions = ["View"]
                     }
                 ]
@@ -51,9 +54,10 @@ public sealed class PermissionToolsUnitTests
 
         Assert.Contains("About", result);
         Assert.Contains("Administrators", result);
-        Assert.Contains("Anonymous", result);
+        Assert.Contains("Everyone", result);
         Assert.Contains("Modify", result);
-        Assert.Contains("\"InheritsPermissions\": false", result);
+        Assert.Contains("EffectiveActions", result);
+        Assert.Contains("\"IsPublic\": false", result);
     }
 
     [Fact]

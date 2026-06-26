@@ -22,6 +22,10 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Content Model** — Browse Module Builder dynamic types and their field definitions
 - **Page Inspector** — List all CMS page routes (via Sitemap API for performance), get full page details including template name, all widgets, and their configured properties
 - **Route Discovery** — Browse CMS page routes with URL evaluation warnings, ServiceStack API routes, and OData entity sets
+- **Config Reader** — List and dump Sitefinity configuration sections (credential-like values always redacted)
+- **Where-Used** — Reverse lookup of every page/template that references a widget type, content item, or template — the safety check before a refactor
+- **Permissions Inspector** — Effective per-role permissions on a page or content item, including parent inheritance
+- **Maintenance** — Clear caches and recycle the app from your editor (opt-in write operations, never on prod)
 - **Status Check** — Verify if Sitefinity is bootstrapped and ready
 - **Multi-Environment** — Switch between dev/staging/prod environments on the fly
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
@@ -114,6 +118,7 @@ Create `sitefinity-mcp.json` somewhere on your machine (keep it gitignored — i
 - **`sitefinityApiKey`** — paste the same key you put in Sitefinity Admin
 - **`logsPath`** — set this when Sitefinity runs on the same machine (local mode). Omit it for remote servers — logs are fetched via HTTP through the plugin instead
 - **`url`** — required for every environment
+- **`allowWriteOperations`** — optional, default `false`. Set to `true` to permit the write tools (`sitefinity_clear_cache`, `sitefinity_recycle_app`) for this environment. Ignored for prod-like names, and also requires **Allow Write Operations** enabled in the Sitefinity admin
 
 ### Step 6 — Configure your AI client
 
@@ -230,6 +235,12 @@ Currently bundled:
 | `sitefinity_list_forms` | All Sitefinity forms with field count and submission count |
 | `sitefinity_get_form_fields` | Field definitions for a given form — returns the **developer Name** (the `FieldName` the Sitefinity API uses for entry values, e.g. `FormTextBox_C001`), Title, FieldType, IsRequired, and Choices. Pass `debug=true` to also dump the raw Properties/ChildProperties tree (useful when Name/Title come back empty on an unfamiliar Sitefinity version) |
 | `sitefinity_list_form_responses` | Form submissions, newest-first, with an optional case-insensitive `searchTerm` that filters entries by any field value (or IP / UserAgent). Sensitive-named field values (password/secret/apiKey/token/...) are redacted **before** search matching so sensitive values cannot leak via search |
+| `sitefinity_list_config_sections` | List the names of all registered Sitefinity configuration sections (systemConfig, securityConfig, multisiteConfig, …) — discover a valid name before reading one |
+| `sitefinity_get_config_section` | Flattened name/value dump of a single config section. Credential-like values (keys, passwords, connection strings, `[SecretData]`) are **always** redacted — in every environment, with no flag to reveal them |
+| `sitefinity_where_used` | Reverse "where used" lookup: find every page and template that references a widget type, content item, or page template. Run this before deleting or refactoring a shared resource |
+| `sitefinity_get_permissions` | Inspect effective per-role permissions (granted/denied actions, parent inheritance) on a page or content item — answers "why can't this role see/edit this?" |
+| `sitefinity_clear_cache` | **Write.** Clear Sitefinity caches (`output`, `whole`, or single `page`) to see widget/template changes fast. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
+| `sitefinity_recycle_app` | **Write.** Recycle the Sitefinity application so code/config/binding changes take effect. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -267,6 +278,23 @@ These three tools give the LLM direct visibility into real content, templates, a
 
 **`sitefinity_list_form_responses`** — Form submissions for a form, ordered newest-first. Pass `searchTerm` to return only entries where any field value (or `IpAddress` / `UserAgent`) contains the term (case-insensitive substring). The response includes `TotalCount` (all entries on the form), `MatchedCount` (entries after the search filter), and echoes the `SearchTerm` you sent. Use `take`/`skip` to page through the matched set. Any field whose name looks sensitive (`Password`, `ApiKey`, `Secret`, `Token`, …) is scrubbed **before** leaving Sitefinity *and before* search matching runs, so sensitive values can never leak via a crafted search term.
 
+### Config, Permissions & Where-Used
+
+**`sitefinity_list_config_sections`** / **`sitefinity_get_config_section`** — Configuration lives across the database and `.config` files and is otherwise only visible through the admin UI. List the registered section names, then dump one as a flattened list of dotted/indexed name/value paths. Credential-like values (keys, passwords, connection strings, tokens, `[SecretData]`/encrypted properties) are **always** redacted on the plugin side before transit — in every environment, with no flag to reveal them.
+
+**`sitefinity_where_used`** — Sitefinity has no built-in "where used" view. Pass a Guid (content item or template id) or a widget/controller type name (e.g. `ContentBlock`, `MvcControllerProxy`) and it scans every page and template for references, returning each host page/template, the widget carrying the reference, and why it matched. The kind is auto-detected; override it with `kind` when needed. Use it before deleting or refactoring a shared resource.
+
+**`sitefinity_get_permissions`** — Resolves the effective permissions on a page or content item: which roles are granted or denied which actions (View, Modify, Delete, Create, ChangePermissions, …) across each permission set, and whether the object inherits from its parent. Pass a page identifier (Guid, URL, or title), or a content item Guid plus its `typeFullName`. Answers "why can't this role see or edit this?"
+
+### Maintenance (Write Operations)
+
+**`sitefinity_clear_cache`** and **`sitefinity_recycle_app`** are the only write tools in the server — the inner loop of widget/template development. `clear_cache` invalidates the `output` cache (default), the `whole` Sitefinity cache, or a single `page`'s output cache; `recycle_app` restarts the application so code/config/binding changes take effect.
+
+Because they change state, they are gated on **both** sides and both must opt in:
+
+1. **MCP server side** — the target environment must set `"allowWriteOperations": true` in `sitefinity-mcp.json`. `EffectiveAllowWriteOperations` is prod-guarded, so any environment whose name starts with `prod` is always refused regardless of the flag. The tool refuses before any network call when this is off.
+2. **Plugin side** — **Allow Write Operations** must be checked in Sitefinity Admin > Advanced > McpSettings (default off). When it's off, the `/mcp/cache/clear` and `/mcp/app/recycle` endpoints return HTTP 403.
+
 ### Secret Redaction
 
 Every string returned by log tools, widget tools, form response tools, the config reader, and list_content flows through a deny-list + pattern scanner. Values keyed by `Password`, `ApiKey`, `Secret`, etc. become `[REDACTED]`; embedded JWTs, AWS keys, GitHub PATs, Slack tokens, OpenAI keys, Azure connection strings, and `Password=...` connection-string fragments are replaced with `[REDACTED:<kind>]` tags. **Redaction is unconditional — there is no flag to disable it, in any environment including dev.** A raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so the server never emits one.
@@ -286,6 +314,10 @@ Every string returned by log tools, widget tools, form response tools, the confi
 - MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
 - Sitefinity startup (`McpInit.Register`) — plugin won't register endpoints
 - Sitefinity request filter (`McpApiKeyAttribute`) — requests blocked at runtime
+
+**Write operations are double-gated** — The two state-changing tools (`sitefinity_clear_cache`, `sitefinity_recycle_app`) require **both** `"allowWriteOperations": true` in the per-environment config *and* the **Allow Write Operations** admin switch (default off). The server refuses before any network call when its flag is off; the plugin returns HTTP 403 when its switch is off. Prod-like environment names can never write, regardless of either flag.
+
+**No secret opt-out** — Secret redaction is unconditional. There is no `allowRawSecrets` flag (it was removed) and no environment — including dev — can disable scrubbing. A raw secret in an LLM context is a leak, so the server never emits one.
 
 ---
 

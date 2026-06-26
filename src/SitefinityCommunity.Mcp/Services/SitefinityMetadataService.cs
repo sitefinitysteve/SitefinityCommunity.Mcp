@@ -313,7 +313,9 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var (_, config) = this._resolver.Resolve(environment);
         var client = this._httpClientFactory.CreateClient("SitefinityPlugin");
         client.BaseAddress = new Uri(config.Url.TrimEnd('/'));
-        client.Timeout = TimeSpan.FromSeconds(30);
+        // where-used scans every page + template, so allow generous headroom over the normal sub-second
+        // metadata calls (cold app-pool start on a large site can still take a while on the first hit).
+        client.Timeout = TimeSpan.FromSeconds(120);
 
         if (!string.IsNullOrEmpty(config.SitefinityApiKey))
         {

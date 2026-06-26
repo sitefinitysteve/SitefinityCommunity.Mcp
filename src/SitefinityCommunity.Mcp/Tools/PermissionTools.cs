@@ -21,11 +21,13 @@ public sealed class PermissionTools
     }
 
     [McpServerTool(Name = "sitefinity_get_permissions", ReadOnly = true)]
-    [Description("Inspect the effective permissions on a page or content item: which roles are granted or " +
-                 "denied which actions (View, Modify, Delete, Create, ChangePermissions, …) across each " +
-                 "permission set, and whether the object inherits from its parent. Pass a page identifier " +
-                 "(Guid, URL, or title) for a page. For a content item, pass its Guid and the content type's " +
-                 "full name via typeFullName. Use to debug why a role can't see or edit something.")]
+    [Description("Inspect the effective permissions on a page or content item. Decodes each principal's " +
+                 "granted/denied actions (View, Modify, Delete, Create, ChangePermissions, …) into EFFECTIVE " +
+                 "access (deny wins over grant) across each permission set, flags whether the object is public " +
+                 "(the Everyone role can View), whether any authenticated user can view it, and whether it " +
+                 "inherits permissions (and from which parent). Pass a page identifier (Guid, URL, or title) for " +
+                 "a page; for a content item pass its Guid and the content type's full name via typeFullName. " +
+                 "Use to answer \"is this page public?\" or \"why can't this role see/edit this?\".")]
     public async Task<string> GetPermissions(
         [Description("Page identifier (Guid, URL, or title) or content item Guid.")]
         string identifier,
