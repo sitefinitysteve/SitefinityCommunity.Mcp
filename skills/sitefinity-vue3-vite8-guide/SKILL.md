@@ -96,7 +96,7 @@ These must be referenced in the C# project where your widget controllers live (n
 | `Telerik.Sitefinity.Mvc` | MVC controller base, `[ControllerToolboxItem]` | Usually already referenced in a Sitefinity controls project |
 | `Telerik.Sitefinity.Frontend` | `[EnhanceViewEnginesAttribute]`, Feather view resolution | Required for cross-project view lookup |
 | `Progress.Sitefinity.Renderer` | `KnownFieldTypes`, `[TableView]`, `[ContentSection]`, `[Choice]` | **Newer package** — may need to be added. Powers the auto-generated widget designer UI. (Note: `[ColorPalette]` is NOT available here — it exists only in the ASP.NET Core renderer packages, verified absent from the MVC assemblies. Use `KnownFieldTypes.Color` for a color picker in MVC.) |
-| `ServiceStack.Text` | `JsonSerializer.SerializeToString()` in widget controllers | Bundled with Sitefinity but may only be in the web project's bin. **Add a reference** in the controls project (DLL reference from the web project's `bin/` or `packages/` folder). |
+| `ServiceStack.Text` | `JsonSerializer.SerializeToString()` in widget controllers | Bundled with Sitefinity so no NuGet package is needed, but the class-library project needs a DLL reference to the copy in the web project's `bin/` or `packages/` folder. |
 
 ---
 
@@ -863,15 +863,6 @@ Sitefinity lets content editors choose column layouts when building pages. These
     </div>
 </div>
 
-<!-- pod.html — Legacy pod wrapper (sharp corners by design) -->
-<div class="pod-wrapper">
-    <div class="pod-content row" data-sf-element="Row">
-        <div class="sf_colsIn col-md-12" data-sf-element="Pod"
-             data-placeholder-label="Pod">
-        </div>
-    </div>
-</div>
-
 <!-- well.html — Inset/recessed content area -->
 <div class="well">
     <div class="row" data-sf-element="Row">
@@ -1407,7 +1398,7 @@ namespace YourApp.Controls.Mvc.Controllers
 - `[PropertyPersistence(PersistAsJson = true)]` is **mandatory** on `IList<>` properties containing complex objects — without it, Sitefinity's default serialization breaks nested types
 - `[TableView(Reorderable = true)]` gives the content editor a drag-to-reorder list UI
 - `IsEmpty` enables the "Click to add content" placeholder in design mode
-- `ServiceStack.Text.JsonSerializer` is bundled with Sitefinity — no extra NuGet needed
+- `ServiceStack.Text.JsonSerializer` is bundled with Sitefinity so no NuGet package is needed, but the class-library project needs a DLL reference to the copy in the web project's `bin/` or `packages/` folder
 
 ### Faq.Default.cshtml
 

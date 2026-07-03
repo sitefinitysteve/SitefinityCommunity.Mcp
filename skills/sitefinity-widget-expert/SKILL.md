@@ -21,7 +21,15 @@ public class MyWidgetController : Controller
 - `[ControllerToolboxItem]` registers the widget in the page editor toolbox; discovery is automatic (no Global.asax registration)
 - `CssClass` should combine a specific icon class with `sfMvcIcn` (the blue MVC badge): `sfListitemsIcn`, `sfVideoIcn`, `sfImageViewIcn`, `sfFormsIcn`, `sfNavigationIcn`, `sfNewsViewIcn`, ...
 - Controllers inherit from `System.Web.Mvc.Controller` directly (no Sitefinity base class required)
-- Optional: `[IndexRenderMode(IndexRenderModes.NoOutput)]` - widget renders nothing during search indexing
+
+### Search indexing: [IndexRenderMode] and index-mode detection
+
+Sitefinity's Lucene search indexer builds the index by RENDERING each page server-side and crawling the output. Every widget therefore participates in search indexing by default - which is right for content widgets and wrong for anything personalized, session-dependent, expensive, or noisy (login boxes, dashboards, "hello {user}" headers, filter UIs). Two tools control this:
+
+- **`[IndexRenderMode(IndexRenderModes.NoOutput)]`** on the controller class (namespace `Telerik.Sitefinity.Web.UI`) - the widget renders NOTHING during an index pass, so none of its output pollutes the page's search entry. Use it whenever the widget's output should not be searchable.
+- **Detect index mode at runtime** when only PART of the rendering should change: the indexer flags the request with `Page.Items["IsInIndexMode"]`. Check `HttpContext.Current?.Items != null && SystemManager.CurrentHttpContext?.Handler is Page page && page.Items["IsInIndexMode"] is bool inIndex && inIndex` (wrap it in a small helper). Typical use: a JS-rendered widget emits plain crawlable HTML during indexing and its normal client mount point otherwise - the `sitefinity-vue3-vite8-guide` companion skill builds its whole indexing strategy on this flag.
+
+**Gotcha:** the indexer does NOT execute JavaScript. A widget whose content arrives client-side (Vue/React data islands, AJAX loads) is invisible to search even without `NoOutput` - the index sees only the empty mount markup. Emit server-side HTML during index mode if that content must be findable.
 
 ### ICustomWidgetVisualization
 

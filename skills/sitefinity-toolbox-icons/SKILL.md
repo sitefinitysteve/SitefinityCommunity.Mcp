@@ -16,11 +16,11 @@ Set `CssClass` to **two** classes: the specific icon class first, then
 
 ```csharp
 [ControllerToolboxItem(
-    Name = "DesignStats_MVC",
+    Name = "MyStats_MVC",
     Title = "Stats",
-    SectionName = "Design",
+    SectionName = "ContentToolboxSection",
     CssClass = "sfStatisticsIcn sfMvcIcn")]
-public class DesignStatsController : Vue3Controller
+public class MyStatsController : Controller
 {
     // ...
 }
@@ -33,25 +33,12 @@ Navigation widget).
 Without a specific icon class, the tile renders blank (just the MVC
 badge on an empty square).
 
-## Current assignments (Design section)
+## Tracking your own assignments
 
-| Widget | Icon Class |
-|---|---|
-| Feature | `sfListitemsIcn` |
-| Stats | `sfStatisticsIcn` |
-| Hero | `sfImageViewIcn` |
-| Call to Action | `sfFacebookLikeIcn` |
-| About | `sfContentBlockIcn` |
-| Banner | `sfContentViewIcn` |
-| FAQ | `sfForumsViewIcn` |
-| Documents | `sfDownloadListIcn` |
-| Tabstrip | `sfMenuIcn` |
-| Team | `sfUserListIcn` |
-| Testimonial | `sfCommentsIcn` |
-| List | `sfRecentItemsIcn` |
-
-When adding a new Design widget, pick an unused icon from the list below
-that best matches the widget's purpose.
+Keep a table of which icon class each of your widgets uses in your own
+project documentation. Since the sprite sheet is shared, tracking your
+assignments makes it easy to pick an unused icon that best matches a new
+widget's purpose and avoids two widgets colliding on the same tile.
 
 ## Available icon classes
 

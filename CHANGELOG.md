@@ -2,6 +2,28 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] — 2026-07-03
+
+Grows the bundled skill catalog to 16 and makes the repo installable through the open Agent Skills standard, so skills can be added and updated with a single `npx` command — no clone required.
+
+### New skills
+
+- **`sitefinity-adminapp-extensions`** — Extend the Sitefinity backend UI with Angular AdminApp extensions: custom field editors that override content-edit fields, NgModule registration, authenticated OData calls, dev server, and bundle deployment.
+- **`sitefinity-best-practices`** — The read-this-first foundation for any Sitefinity task: establishes context, states the ground rules, verifies Sitefinity/.NET versions, and routes you to the right deep skill.
+- **`sitefinity-servicestack-api`** — Build JSON/REST APIs inside a Sitefinity MVC site: ServiceStack services, `/RestApi` routes, role/identity security, and fixing the `DateTime` "Invalid Date" serialization trap.
+- **`sitefinity-odata-services`** — Query native content types and Module Builder dynamic types via Sitefinity's built-in `/api/default` OData service with `$filter`/`$select`/`$expand` and per-type anonymous access — zero code.
+
+### Improved skills
+
+- **`sitefinity-designer-attributes`** / **`sitefinity-widget-expert`** — Corrected the `IndexRenderMode` namespace, clarified `[DataType(customDataType: KnownFieldTypes.CheckBox)]` usage, and flagged the `ExternalDataChoiceAttribute` custom-choice approach as an ASP.NET Core renderer-only extension point (MVC uses `[Choice(ServiceUrl = ...)]`).
+- **`sitefinity-page-controls-map`** — Genericized examples so they no longer reference project-specific widget names, and documented that custom grid templates produce their own captions.
+- **`sitefinity-toolbox-icons`** — Replaced a project-specific icon assignment table with guidance on tracking your own assignments; genericized the registration example.
+- **`sitefinity-vue3-vite8-guide`** — Generalized the LinkModel-to-JSON section for any JS frontend and cross-linked the config-island pattern.
+
+### Skills distribution
+
+The repo is now installable via the open [Agent Skills](https://agentskills.io) standard — `npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp` (all skills, a single skill, project or global) and `npx skills update` for updates, across Claude Code / Codex / Cursor / GitHub Copilot. README Step 8 was rewritten to lead with `npx skills` (with `install-skills.ps1` kept as the cloned-repo/offline fallback) and now documents the full 16-skill catalog.
+
 ## [1.5.0] — 2026-06-26
 
 A read-heavy release that opens up Sitefinity configuration, permissions, and cross-site reference data — plus the first (carefully gated) write tools — and removes the last way a raw secret could ever leave the server.

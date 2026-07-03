@@ -23,12 +23,12 @@ Each row represents a control (widget) placed on a page.
 | `object_type` | varchar(510) | The .NET type. Classic MVC widgets use `Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy` (Feather dynamic widgets use `MvcWidgetProxy`). Old rows can carry assembly-qualified names — match with `LIKE`, never equality |
 | `page_id` | uniqueidentifier | The OWNER — polymorphic, no FK constraint: `sf_page_data.content_id` (live page controls), `sf_draft_pages.id` (draft controls — typically the majority of rows), or `sf_page_templates.id` (template controls) |
 | `place_holder` | varchar(255) | Which placeholder the control sits in (e.g. `Body`, `C050_Col00`) |
-| `caption_` | nvarchar(255) | Human-readable label (e.g. "Pod Title", "Content block", "grid-8+4") |
+| `caption_` | nvarchar(255) | Human-readable label (e.g. "Spotlight", "Content block", "grid-8+4") |
 | `is_layout_control` | tinyint | 1 = layout/grid control, 0 = content widget |
 | `sibling_id` | uniqueidentifier | Linked-list for render order (points to previous sibling; `00000000-...` = first) |
 | `parent_prop_id` | uniqueidentifier | For child objects nested under a property |
 
-**Key insight**: ALL MVC widgets share the same `object_type` (`MvcControllerProxy`). The actual controller type (e.g. `PodTitleController`) is stored as a property, not on the control row itself.
+**Key insight**: ALL MVC widgets share the same `object_type` (`MvcControllerProxy`). The actual controller type (e.g. `SpotlightController`) is stored as a property, not on the control row itself.
 
 ### `sf_control_properties` — Property Name/Value Pairs
 
@@ -57,7 +57,7 @@ MVC widget top-level properties:
 
 | Property Name | Purpose | Example Value |
 |---------------|---------|---------------|
-| `ControllerName` | The full .NET type of the actual controller (always persisted — it's the key property) | `SitefinityWebApp.Mvc.Controllers.PodTitleController` |
+| `ControllerName` | The full .NET type of the actual controller (always persisted — it's the key property) | `SitefinityWebApp.Mvc.Controllers.SpotlightController` |
 | `ID` | The short display ID used in Sitefinity UI | `C052` |
 | `Settings` | **Container row** for nested properties (val is always NULL). **Only exists if the widget has ever been configured** — persistence is sparse (only values differing from the controller's defaults get rows), so a freshly dropped widget has just `ControllerName` + `ID` and NO Settings row | `NULL` |
 
@@ -69,7 +69,7 @@ These contain the **actual widget content** — the values that editors set in t
 
 | Widget Type | Child Properties | Example |
 |-------------|-----------------|---------|
-| **PodTitleController** | `Text`, `BadgeText`, `SubText`, `TemplateName` | `Text` = "Resources – Links" |
+| **SpotlightController** | `Heading`, `SubText`, `TemplateName` | `Heading` = "Resources - Links" |
 | **ContentBlockController** | `Content` | `Content` = "&lt;h2&gt;Welcome&lt;/h2&gt;&lt;p&gt;...&lt;/p&gt;" |
 | **DocumentController** | `Content` (selected document IDs) | JSON array of document GUIDs |
 | **NavigationController** | `SelectionMode`, `LevelsToInclude`, etc. | `SelectionMode` = "CurrentPageChildren" |
@@ -80,20 +80,20 @@ These contain the **actual widget content** — the values that editors set in t
 ```
 sf_object_data (id: AAA-BBB)
 │  object_type = "Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy"
-│  caption_    = "Pod Title"
+│  caption_    = "Spotlight"
 │  page_id     = (page GUID)
 │  place_holder = "C050_Col00"
 │
 └── sf_control_properties (control_id = AAA-BBB)
      │
-     ├── [id: 111] ControllerName = "SitefinityWebApp.Mvc.Controllers.PodTitleController"
+     ├── [id: 111] ControllerName = "SitefinityWebApp.Mvc.Controllers.SpotlightController"
      ├── [id: 222] ID = "C218"
      └── [id: 333] Settings = NULL   ← container, val is always NULL
           │
           └── sf_control_properties (prnt_prop_id = 333)
-               ├── Text = "Resources – Links"        ← the heading text!
-               ├── BadgeText = "+12.5%"               ← badge content
-               └── TemplateName = "PodTitle.Default"   ← view template
+               ├── Heading = "Resources - Links"        ← the heading text!
+               ├── SubText = "Helpful links"             ← secondary text
+               └── TemplateName = "Spotlight.Default"    ← view template
 ```
 
 ---
@@ -112,7 +112,7 @@ foreach (var control in pageData.Controls)
 {
     // control.Id         → sf_object_data.id (the GUID)
     // control.ObjectType → "Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy"
-    // control.Caption    → "Pod Title"
+    // control.Caption    → "Spotlight"
     // control.PlaceHolder → "C050_Col00"
     // control.IsLayoutControl → false
     // control.SiblingId  → render order linked-list pointer
@@ -199,7 +199,7 @@ sorted.AddRange(placeholderControls.Where(c => !visited.Contains(c.Id)));
 
 ## Layout Controls & Placeholder Nesting
 
-Layout widgets (grids, pods) create child placeholders for their columns:
+Layout widgets (grids) create child placeholders for their columns:
 
 - A layout control with `ID = "C050"` and `Caption = "grid-8+4"` creates placeholders: `C050_Col00` (8/12 width), `C050_Col01` (4/12 width)
 - Content widgets placed in those columns have `place_holder = "C050_Col00"`
@@ -208,7 +208,8 @@ Layout widgets (grids, pods) create child placeholders for their columns:
 - `grid-12` → single full-width column
 - `grid-8+4` → 8/12 + 4/12 two-column layout
 - `grid-4+4+4` → three equal columns
-- `pod` → a pod container (always `grid-12` equivalent, but styled as a card)
+
+Custom grid templates registered by a project produce their own custom captions (whatever caption the layout template defines).
 
 ---
 
@@ -309,5 +310,5 @@ INNER JOIN sf_control_properties cp ON cp.control_id = od.id AND cp.nme = 'Contr
 LEFT JOIN sf_page_data pd ON pd.content_id = od.page_id
 LEFT JOIN sf_draft_pages dp ON dp.id = od.page_id
 LEFT JOIN sf_page_templates pt ON pt.id = od.page_id
-WHERE cp.val LIKE '%PodTitleController%'
+WHERE cp.val LIKE '%SpotlightController%'
 ```
