@@ -358,7 +358,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok" }` |
 | `/mcp/logs` | GET | List all log files with metadata |
 | `/mcp/logs/{FileName}` | GET | Read a log file (optional `MaxLines` query param) |
-| `/mcp/logs/search` | POST | Search all logs with regex pattern |
+| `/mcp/logs/search` | POST | Search logs with a regex pattern. Searches `*.log` files **newest-first** and stops after `MaxMatches` hits (default 200, max 1000) so large prod log sets don't time the client out. Optional `FileName` restricts the search to a single file (e.g. `Error.log`). Streams each file line-by-line — flat memory regardless of file size |
 | `/mcp/logs/last-error` | GET | Most recent error log entry |
 | `/mcp/site-info` | GET | Sitefinity version, .NET version, project name, languages, multisite |
 | `/mcp/modules` | GET | All installed modules with type, status, startup type |

@@ -23,6 +23,12 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         private static readonly string LogsPath =
             HostingEnvironment.MapPath("~/App_Data/Sitefinity/Logs") ?? string.Empty;
 
+        /// <summary>Default cap on total matches when the request does not specify one.</summary>
+        private const int DefaultMaxMatches = 200;
+
+        /// <summary>Hard ceiling on matches, even when the request asks for more.</summary>
+        private const int MaxMatchesCeiling = 1000;
+
         /// <summary>
         /// GET /RestApi/mcp/logs — List all log files with metadata.
         /// </summary>
@@ -103,14 +109,34 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             var regex = new Regex(request.Pattern, regexOptions, TimeSpan.FromSeconds(5));
             var contextLines = Math.Max(0, Math.Min(request.ContextLines, 10));
 
+            var cap = request.MaxMatches > 0
+                ? Math.Min(request.MaxMatches, MaxMatchesCeiling)
+                : DefaultMaxMatches;
+
             var results = new List<McpSearchResult>();
             var dir = new DirectoryInfo(LogsPath);
 
-            foreach (var file in dir.GetFiles("*.log"))
+            // Newest files first, stopping once the cap is reached — bounds the work on large rolled
+            // log sets so a common pattern can't scan hundreds of megabytes and time the client out.
+            IEnumerable<FileInfo> files = dir.GetFiles("*.log")
+                .OrderByDescending(f => f.LastWriteTime);
+
+            if (!string.IsNullOrWhiteSpace(request.FileName))
             {
+                ValidateFileName(request.FileName);
+                files = files.Where(f => string.Equals(f.Name, request.FileName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            foreach (var file in files)
+            {
+                if (results.Count >= cap)
+                {
+                    break;
+                }
+
                 try
                 {
-                    SearchFile(file, regex, contextLines, results);
+                    SearchFile(file, regex, contextLines, cap, results);
                 }
                 catch (IOException)
                 {
@@ -162,43 +188,63 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             }
         }
 
-        private static void SearchFile(FileInfo file, Regex regex, int contextLines, List<McpSearchResult> results)
+        /// <summary>
+        /// Streams a single file line-by-line, appending matches until the shared <paramref name="cap"/>
+        /// is reached. Memory stays flat regardless of file size: only a small before-context window and
+        /// the matches still collecting after-context are held, never the whole file.
+        /// </summary>
+        private static void SearchFile(FileInfo file, Regex regex, int contextLines, int cap, List<McpSearchResult> results)
         {
             using (var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             using (var reader = new StreamReader(stream))
             {
-                var allLines = new List<string>();
+                var before = new Queue<string>();
+                var pendingAfter = new List<McpSearchResult>();
+                var lineNumber = 0;
                 string line;
+
                 while ((line = reader.ReadLine()) != null)
                 {
-                    allLines.Add(line);
-                }
+                    lineNumber++;
 
-                for (var i = 0; i < allLines.Count; i++)
-                {
-                    if (!regex.IsMatch(allLines[i]))
+                    // Feed this line as after-context to any recent match still collecting it.
+                    for (var p = pendingAfter.Count - 1; p >= 0; p--)
                     {
-                        continue;
+                        pendingAfter[p].ContextAfter.Add(line);
+                        if (pendingAfter[p].ContextAfter.Count >= contextLines)
+                        {
+                            pendingAfter.RemoveAt(p);
+                        }
                     }
 
-                    var result = new McpSearchResult
+                    if (regex.IsMatch(line))
                     {
-                        FileName = file.Name,
-                        LineNumber = i + 1,
-                        MatchedLine = allLines[i]
-                    };
+                        var result = new McpSearchResult
+                        {
+                            FileName = file.Name,
+                            LineNumber = lineNumber,
+                            MatchedLine = line
+                        };
+                        result.ContextBefore.AddRange(before);
+                        results.Add(result);
 
-                    for (var j = Math.Max(0, i - contextLines); j < i; j++)
-                    {
-                        result.ContextBefore.Add(allLines[j]);
+                        if (contextLines > 0)
+                        {
+                            pendingAfter.Add(result);
+                        }
+
+                        if (results.Count >= cap)
+                        {
+                            return;
+                        }
                     }
 
-                    for (var j = i + 1; j <= Math.Min(allLines.Count - 1, i + contextLines); j++)
+                    // Maintain a rolling window of the last contextLines lines for before-context.
+                    before.Enqueue(line);
+                    while (before.Count > contextLines)
                     {
-                        result.ContextAfter.Add(allLines[j]);
+                        before.Dequeue();
                     }
-
-                    results.Add(result);
                 }
             }
         }

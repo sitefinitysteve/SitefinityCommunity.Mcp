@@ -9,5 +9,11 @@ public interface ILogProvider
 {
     Task<IReadOnlyList<LogFileInfo>> ListFilesAsync(CancellationToken ct = default);
     Task<string> ReadFileAsync(string fileName, CancellationToken ct = default);
-    Task<IReadOnlyList<LogSearchResult>> SearchAsync(string pattern, int contextLines, bool caseSensitive, CancellationToken ct = default);
+    Task<IReadOnlyList<LogSearchResult>> SearchAsync(
+        string pattern,
+        int contextLines,
+        bool caseSensitive,
+        string? fileName = null,
+        int maxMatches = 0,
+        CancellationToken ct = default);
 }

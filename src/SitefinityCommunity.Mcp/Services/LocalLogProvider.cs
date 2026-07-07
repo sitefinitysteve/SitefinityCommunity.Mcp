@@ -13,6 +13,12 @@ public sealed class LocalLogProvider : ILogProvider
     private readonly string _logsPath;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>Default cap on total matches when the caller does not specify one.</summary>
+    public const int DefaultMaxMatches = 200;
+
+    /// <summary>Hard ceiling on matches, even when the caller asks for more.</summary>
+    private const int MaxMatchesCeiling = 1000;
+
     public LocalLogProvider(string logsPath)
     {
         this._logsPath = logsPath;
@@ -64,11 +70,15 @@ public sealed class LocalLogProvider : ILogProvider
         }
     }
 
-    public async Task<IReadOnlyList<LogSearchResult>> SearchAsync(
-        string pattern, int contextLines, bool caseSensitive, CancellationToken ct = default)
+    public Task<IReadOnlyList<LogSearchResult>> SearchAsync(
+        string pattern,
+        int contextLines,
+        bool caseSensitive,
+        string? fileName = null,
+        int maxMatches = 0,
+        CancellationToken ct = default)
     {
-        var dir = new DirectoryInfo(this._logsPath);
-        var logFiles = dir.GetFiles("*.log");
+        var cap = maxMatches > 0 ? Math.Min(maxMatches, MaxMatchesCeiling) : DefaultMaxMatches;
 
         var regexOptions = RegexOptions.Compiled;
         if (!caseSensitive)
@@ -78,15 +88,28 @@ public sealed class LocalLogProvider : ILogProvider
 
         var regex = new Regex(pattern, regexOptions, RegexTimeout);
 
-        // Search files in parallel
-        var tasks = logFiles.Select(file => Task.Run(() => SearchFile(file, regex, contextLines, ct), ct));
-        var results = await Task.WhenAll(tasks);
+        var dir = new DirectoryInfo(this._logsPath);
+        IEnumerable<FileInfo> files = dir.GetFiles("*.log")
+            .OrderByDescending(f => f.LastWriteTime);
 
-        var flat = results
-            .SelectMany(r => r)
-            .OrderByDescending(r => r.FileName)
-            .ThenBy(r => r.LineNumber)
-            .ToList();
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            ValidateFileName(fileName);
+            files = files.Where(f => string.Equals(f.Name, fileName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Newest files first, stopping once the cap is reached — bounds the work on large
+        // rolled log sets so a common pattern can't scan hundreds of megabytes.
+        var flat = new List<LogSearchResult>();
+        foreach (var file in files)
+        {
+            if (flat.Count >= cap)
+            {
+                break;
+            }
+
+            SearchFile(file, regex, contextLines, cap, flat, ct);
+        }
 
         // Always redact — a raw secret in the LLM context is a leak (it can be logged, cached, or
         // absorbed into model training data), so there is intentionally no opt-out, even on dev.
@@ -105,65 +128,77 @@ public sealed class LocalLogProvider : ILogProvider
             }
         }
 
-        return flat;
+        return Task.FromResult<IReadOnlyList<LogSearchResult>>(flat);
     }
 
-    private static List<LogSearchResult> SearchFile(
-        FileInfo file, Regex regex, int contextLines, CancellationToken ct)
+    /// <summary>
+    /// Streams a single file line-by-line, appending matches to <paramref name="results"/> until the
+    /// shared <paramref name="cap"/> is reached. Memory stays flat regardless of file size: only a
+    /// small before-context window and the matches still collecting after-context are held.
+    /// </summary>
+    private static void SearchFile(
+        FileInfo file, Regex regex, int contextLines, int cap, List<LogSearchResult> results, CancellationToken ct)
     {
-        var results = new List<LogSearchResult>();
-
         try
         {
             // FileShare.ReadWrite for concurrent access
             using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
-            var allLines = new List<string>();
 
+            var before = new Queue<string>();
+            var pendingAfter = new List<LogSearchResult>();
+            var lineNumber = 0;
             string? line;
+
             while ((line = reader.ReadLine()) != null)
             {
                 ct.ThrowIfCancellationRequested();
-                allLines.Add(line);
-            }
+                lineNumber++;
 
-            for (var i = 0; i < allLines.Count; i++)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                if (!regex.IsMatch(allLines[i]))
+                // Feed this line as after-context to any recent match still collecting it.
+                for (var p = pendingAfter.Count - 1; p >= 0; p--)
                 {
-                    continue;
+                    pendingAfter[p].ContextAfter.Add(line);
+                    if (pendingAfter[p].ContextAfter.Count >= contextLines)
+                    {
+                        pendingAfter.RemoveAt(p);
+                    }
                 }
 
-                var result = new LogSearchResult
+                if (regex.IsMatch(line))
                 {
-                    FileName = file.Name,
-                    LineNumber = i + 1,
-                    MatchedLine = allLines[i]
-                };
+                    var result = new LogSearchResult
+                    {
+                        FileName = file.Name,
+                        LineNumber = lineNumber,
+                        MatchedLine = line
+                    };
+                    result.ContextBefore.AddRange(before);
+                    results.Add(result);
 
-                // Context before
-                for (var j = Math.Max(0, i - contextLines); j < i; j++)
-                {
-                    result.ContextBefore.Add(allLines[j]);
+                    if (contextLines > 0)
+                    {
+                        pendingAfter.Add(result);
+                    }
+
+                    if (results.Count >= cap)
+                    {
+                        return;
+                    }
                 }
 
-                // Context after
-                for (var j = i + 1; j <= Math.Min(allLines.Count - 1, i + contextLines); j++)
+                // Maintain a rolling window of the last contextLines lines for before-context.
+                before.Enqueue(line);
+                while (before.Count > contextLines)
                 {
-                    result.ContextAfter.Add(allLines[j]);
+                    before.Dequeue();
                 }
-
-                results.Add(result);
             }
         }
         catch (IOException)
         {
             // File may be locked by Sitefinity — skip it
         }
-
-        return results;
     }
 
     /// <summary>

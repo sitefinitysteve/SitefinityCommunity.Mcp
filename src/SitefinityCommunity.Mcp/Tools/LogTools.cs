@@ -90,11 +90,13 @@ public sealed class LogTools
     }
 
     [McpServerTool(Name = "sitefinity_search_logs", ReadOnly = true)]
-    [Description("Search across ALL Sitefinity log files using a regex pattern. Returns matching lines with surrounding context.")]
+    [Description("Search Sitefinity log files using a regex pattern. Returns matching lines with surrounding context. Searches newest files first and stops after maxMatches hits, so it stays fast on large prod logs. To narrow a slow search, set fileName (e.g. 'Error.log') to search a single file instead of the whole rolled set.")]
     public async Task<string> SearchLogs(
         [Description("Regex pattern to search for (e.g., 'NullReference', 'timeout.*sql')")] string pattern,
         [Description("Number of context lines before and after each match (default: 2)")] int contextLines = 2,
         [Description("Whether the search is case-sensitive (default: false)")] bool caseSensitive = false,
+        [Description("Restrict the search to a single log file by name (e.g. 'Error.log'). When omitted, searches all *.log files newest-first.")] string? fileName = null,
+        [Description("Maximum number of matches to return before stopping (default: 200, max: 1000). Lower this or set fileName if a search is slow.")] int maxMatches = 0,
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
         CancellationToken ct = default)
     {
@@ -102,15 +104,24 @@ public sealed class LogTools
         {
             contextLines = Math.Clamp(contextLines, 0, 10);
             var provider = this._logProviderFactory.Create(environment);
-            var results = await provider.SearchAsync(pattern, contextLines, caseSensitive, ct);
+            var results = await provider.SearchAsync(pattern, contextLines, caseSensitive, fileName, maxMatches, ct);
 
             if (results.Count == 0)
             {
                 return $"No matches found for pattern: {pattern}";
             }
 
+            var effectiveCap = maxMatches > 0 ? Math.Min(maxMatches, 1000) : 200;
+            var wasCapped = results.Count >= effectiveCap;
+
             var sb = new StringBuilder();
-            sb.AppendLine($"Found {results.Count} match(es) for '{pattern}':");
+            sb.AppendLine($"Found {results.Count} match(es) for '{pattern}'{(fileName != null ? $" in {fileName}" : "")}:");
+
+            if (wasCapped)
+            {
+                sb.AppendLine($"(Stopped at the {effectiveCap}-match cap — there may be more. Refine the pattern, set fileName, or raise maxMatches to see others.)");
+            }
+
             sb.AppendLine();
 
             foreach (var result in results.Take(100)) // Cap output at 100 matches

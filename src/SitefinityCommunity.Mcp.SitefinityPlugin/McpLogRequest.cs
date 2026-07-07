@@ -29,6 +29,18 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Pattern { get; set; }
         public int ContextLines { get; set; }
         public bool CaseSensitive { get; set; }
+
+        /// <summary>
+        /// Maximum matches to collect before stopping. Bounds the work on large rolled log sets.
+        /// 0 (or unset) falls back to the server default (200); values above 1000 are clamped.
+        /// </summary>
+        public int MaxMatches { get; set; }
+
+        /// <summary>
+        /// When set, only this single log file is searched (e.g. "Error.log"). When empty, every
+        /// *.log file is searched newest-first.
+        /// </summary>
+        public string FileName { get; set; }
     }
 
     [Route("/mcp/logs/last-error", "GET")]

@@ -2,6 +2,25 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] — 2026-07-07
+
+Makes log search usable against large production log sets. A search over prod logs previously loaded every rolled `*.log` file fully into memory, collected every match with no cap, and serialized the whole result back — routinely blowing past the client's 30-second timeout before returning anything. Search is now bounded, streamed, and newest-first.
+
+### Fixed
+
+- **`sitefinity_search_logs` no longer times out on large logs.** The Sitefinity plugin's search streams each file line-by-line (flat memory regardless of file size), searches files **newest-first**, and **stops after a match cap** (default 200, max 1000) instead of scanning the entire rolled log set. A common pattern like a username now returns the most recent hits quickly instead of exhausting the request.
+- **Search gets its own timeout.** `RemoteLogProvider` used a flat 30-second HTTP timeout for every call; search now gets a dedicated 120-second timeout so a legitimately larger scan can finish, while cheap metadata calls keep the tight 30s.
+
+### Added
+
+- **`fileName` parameter on `sitefinity_search_logs`** — restrict a search to a single file (e.g. `Error.log`) instead of every rolled `*.log`. The biggest single speed-up for a targeted production dig.
+- **`maxMatches` parameter on `sitefinity_search_logs`** — override the default 200-match cap (up to 1000). The tool now reports when a result set was truncated at the cap, so you know to narrow the pattern or raise the limit.
+- Matching request fields (`FileName`, `MaxMatches`) on the plugin's `POST /mcp/logs/search` endpoint.
+
+### Upgrading
+
+The plugin changed, so redeploy the plugin source into your Sitefinity project (`install-plugin.ps1`) and recycle the app for the server-side cap/streaming to take effect. The MCP server picks up the client-side changes (new parameters, longer search timeout) on restart. All new parameters are optional — existing callers are unaffected.
+
 ## [1.6.0] — 2026-07-03
 
 Grows the bundled skill catalog to 16 and makes the repo installable through the open Agent Skills standard, so skills can be added and updated with a single `npx` command — no clone required.

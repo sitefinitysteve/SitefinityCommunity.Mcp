@@ -52,14 +52,23 @@ public sealed class RemoteLogProvider : ILogProvider
     }
 
     public async Task<IReadOnlyList<LogSearchResult>> SearchAsync(
-        string pattern, int contextLines, bool caseSensitive, CancellationToken ct = default)
+        string pattern,
+        int contextLines,
+        bool caseSensitive,
+        string? fileName = null,
+        int maxMatches = 0,
+        CancellationToken ct = default)
     {
-        var client = CreateClient();
+        // Search scans files server-side and can take longer than the cheap metadata calls,
+        // so give it a more generous timeout than the 30s default.
+        var client = CreateClient(TimeSpan.FromSeconds(120));
         var request = new
         {
             Pattern = pattern,
             ContextLines = contextLines,
-            CaseSensitive = caseSensitive
+            CaseSensitive = caseSensitive,
+            FileName = fileName,
+            MaxMatches = maxMatches
         };
 
         var response = await client.PostAsJsonAsync("/RestApi/mcp/logs/search?format=json", request, ct);
@@ -72,11 +81,11 @@ public sealed class RemoteLogProvider : ILogProvider
         return results;
     }
 
-    private HttpClient CreateClient()
+    private HttpClient CreateClient(TimeSpan? timeout = null)
     {
         var client = this._httpClientFactory.CreateClient("SitefinityPlugin");
         client.BaseAddress = new Uri(this._config.Url.TrimEnd('/'));
-        client.Timeout = TimeSpan.FromSeconds(30);
+        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
 
         if (!string.IsNullOrEmpty(this._config.SitefinityApiKey))
         {
