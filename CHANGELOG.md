@@ -2,6 +2,12 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.3] — 2026-08-18
+
+### Fixed
+
+- npm package README: replaced a headerless markdown table that npmjs.com's renderer appears to reject, leaving the package page blank.
+
 ## [2.0.2] — 2026-08-18
 
 ### Fixed

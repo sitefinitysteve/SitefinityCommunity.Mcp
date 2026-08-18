@@ -69,7 +69,7 @@ Or by hand in `.mcp.json`:
 
 32 tools, including:
 
-| | |
+| Area | Tools |
 |---|---|
 | **Logs** | Read and regex-search error/trace logs — bounded and streamed, safe on large production log sets |
 | **Configuration** | Dump any config section (overrides-only by default), full-text search across all Advanced Settings |
