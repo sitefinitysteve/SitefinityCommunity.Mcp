@@ -2,6 +2,37 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] — 2026-08-18
+
+Fixes a config dump large enough to kill the MCP connection outright, and adds a transport-level backstop so no tool can do that again.
+
+`sitefinity_get_config_section("ContentViewConfig")` died with `MCP error -32000: Connection closed`. The request itself was fine — HTTP 200 in 12 seconds — but the response was **78,805,879 bytes across 375,544 entries**, which then roughly doubled through indented re-serialization before being escaped into a single JSON-RPC stdout frame. The stdio transport does not degrade gracefully at that size; it drops the connection, and the caller gets no indication of which tool was responsible.
+
+The amplification is the interesting part: `ContentViewConfig.config` on disk is only **153 KB**, because the file stores just the deltas. `Config.Get(sectionType)` returns the fully defaults-merged object graph, and the walker emitted every declared property of every nested element whether or not anyone had ever set it — **58% of entries had an empty value**, and 27% of paths were validator scaffolding like `…fields[clientCacheProfileElement].profileChoiceFieldDefinition.validator.usSocialSecurityNumberViolationMessage`.
+
+### Fixed
+
+- **`sitefinity_get_config_section` returns overrides only by default.** The plugin now prunes defaults using the config model's own metadata rather than guessing: `ConfigElement.Source` (`NotSet | Default | FileSystem | Database | Import`) prunes whole default-sourced subtrees, `ConfigProperty.DefaultValue` drops leaves still holding their declared default, and `ConfigProperty.SkipOnExport` drops values Sitefinity itself excludes from an export. This collapses a section back toward what a human actually changed — which is also the view you want when debugging. Only an explicit `Default` prunes; `NotSet` keeps walking, so a Sitefinity version that does not populate `Source` degrades to the per-leaf check instead of hiding real values. The section root is never pruned, so an untouched section still reports its shape.
+- **The dump is bounded at the source.** Entries are capped (default 500, max 5000) *during* the walk, so the Sitefinity worker process no longer materializes 375k objects and a 79 MB string — a real memory spike on a live site, and worse on prod than dev.
+- **Indentation is dropped on large results**, which was silently doubling the payload for no benefit to the reader.
+
+### Added
+
+- **`pathFilter` on `sitefinity_get_config_section`** — case-insensitive substring match on the entry path, e.g. `contentViewControls[NewsBackend]` or `smtp`. The single biggest lever on a large section.
+- **`maxEntries`** — raise or lower the 500-entry cap (max 5000).
+- **`includeDefaults`** — opt back into the full defaults-merged dump when you genuinely need unset values.
+- **Honest truncation reporting.** The response carries `TotalCount` (true match count, counted past the cap), `ReturnedCount`, `Truncated`, and `DefaultsSkipped`, so "there are 4,210 of these" is distinguishable from "there are 12". Counting continues past the cap; only materialization stops.
+- **`ConfigProperty.IsSecret` is now a redaction trigger** — the config model's own first-class secret marker, layered on top of the existing deny-list, path heuristics, `[SecretData]` attribute scan, and connection-string shape detection. Redaction remains unconditional, with no flag to reveal secrets in any environment.
+- **A transport-level output limiter (`ToolOutputLimiter`), applied to every tool call.** Results over 250,000 characters are truncated with an explanation of what happened and what to narrow, instead of dropping the connection. Tools are still expected to bound their own output — this only ensures that failing to do so degrades into a readable result rather than a dead session. Override with `SITEFINITY_MCP_MAX_TOOL_OUTPUT_CHARS`.
+
+### Changed
+
+- **MCP SDK upgraded from `0.8.0-preview.1` to `2.2.0` (stable).** The only code change was the filter registration API: `AddCallToolFilter` now hangs off `WithRequestFilters(f => f.AddCallToolFilter(...))`. Verified end-to-end over stdio: initialize negotiates protocol `2025-06-18`, all 31 tools and the resource are discovered, and tool calls run through the API-key filter as before. The write tools already carry the modern `Destructive`/`Idempotent` annotations the current spec surfaces to clients.
+
+### Upgrading
+
+The plugin changed, so redeploy the plugin source into your Sitefinity project (`install-plugin.ps1`) and recycle the app pool. The MCP server picks up the client-side changes on restart. All new parameters are optional — but note the **default behaviour change**: `sitefinity_get_config_section` now returns overrides only. Pass `includeDefaults: true` (ideally with a `pathFilter`) for the previous full-graph view.
+
 ## [1.7.0] — 2026-07-07
 
 Makes log search usable against large production log sets. A search over prod logs previously loaded every rolled `*.log` file fully into memory, collected every match with no cap, and serialized the whole result back — routinely blowing past the client's 30-second timeout before returning anything. Search is now bounded, streamed, and newest-first.

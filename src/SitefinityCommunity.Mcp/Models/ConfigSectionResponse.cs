@@ -30,8 +30,30 @@ public sealed class ConfigSectionResponse
     /// <summary>
     /// Flattened name/value pairs. Nested config elements and dictionaries are expressed as
     /// dotted / indexed paths (e.g. "Providers[OpenAccessProvider].ConnectionStringName").
+    /// Capped at <see cref="MaxEntries"/>.
     /// </summary>
     public List<ConfigEntry> Entries { get; set; } = [];
+
+    /// <summary>Entries matching the filter across the whole section, ignoring the cap.</summary>
+    public int TotalCount { get; set; }
+
+    /// <summary>Entries actually returned.</summary>
+    public int ReturnedCount { get; set; }
+
+    /// <summary>True when <see cref="TotalCount"/> exceeded the cap and entries were dropped.</summary>
+    public bool Truncated { get; set; }
+
+    /// <summary>Whether defaults-valued leaves were included in this dump.</summary>
+    public bool IncludedDefaults { get; set; }
+
+    /// <summary>The path substring filter that was applied, if any.</summary>
+    public string? PathFilter { get; set; }
+
+    /// <summary>The entry cap that was applied.</summary>
+    public int MaxEntries { get; set; }
+
+    /// <summary>Leaves suppressed because they still held their compiled-in default value.</summary>
+    public int DefaultsSkipped { get; set; }
 
     public List<string> Warnings { get; set; } = [];
 }

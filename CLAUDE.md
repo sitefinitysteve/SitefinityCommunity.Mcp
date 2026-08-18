@@ -378,7 +378,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/forms/{FormIdentifier}/fields` | GET | Field definitions for a form. Optional `Debug=true` to include a raw Properties/ChildProperties tree dump for diagnosing empty Name/Title on unfamiliar Sitefinity versions |
 | `/mcp/forms/{FormIdentifier}/responses` | GET | Paged form submissions (secret-redacted). Optional `SearchTerm` filters to entries where any field value (or IP / UserAgent) contains the term (case-insensitive; matching runs **after** redaction so sensitive values cannot leak via search). Response includes `TotalCount` (all entries), `MatchedCount` (after filter), and echoes `SearchTerm` |
 | `/mcp/config` | GET | List all registered configuration section names (discovered by scanning `ConfigSection`-derived types in the AppDomain) |
-| `/mcp/config/{SectionName}` | GET | Flattened dump of a config section. Credential-like values (keys, passwords, connection strings, tokens, `[SecretData]`/encrypted properties) are **ALWAYS redacted** and never returned — in every environment, with no flag to reveal them |
+| `/mcp/config/{SectionName}` | GET | Flattened dump of a config section. Returns **overrides only** by default — Sitefinity materializes a fully defaults-merged graph, so an unbounded `ContentViewConfig` is ~79 MB / 375k entries. Defaults are pruned via `ConfigElement.Source` and `ConfigProperty.DefaultValue`/`SkipOnExport`. Optional `IncludeDefaults`, `PathFilter` (case-insensitive substring), `MaxEntries` (default 500, max 5000). Response carries `TotalCount`, `ReturnedCount`, `Truncated`, `DefaultsSkipped`. Credential-like values (keys, passwords, connection strings, tokens, `ConfigProperty.IsSecret`, `[SecretData]`/encrypted properties) are **ALWAYS redacted** and never returned — in every environment, with no flag to reveal them |
 | `/mcp/where-used` | GET | Reverse lookup: every page/template referencing a widget type, content item, or template (requires `Query`; optional `Kind`=widget\|content\|template) |
 | `/mcp/permissions` | GET | Effective per-role granted/denied actions on a page or content item, and whether it inherits (requires `Identifier`; optional `TypeFullName` for a content item) |
 | `/mcp/cache/clear` | POST | **Write.** Clear cache: `Scope`=output\|whole\|page (`PageIdentifier` required for page). Refused (403) unless `AllowWriteOperations` is enabled in admin |
@@ -397,7 +397,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 - **Nullable enabled** — Project has `<Nullable>enable</Nullable>`
 - **No manual JSON serialization** — Use `System.Text.Json` with source generators where applicable
 - **Target framework** — .NET 10 (`net10.0`)
-- **MCP SDK** — `ModelContextProtocol` v0.8.0-preview.1
+- **MCP SDK** — `ModelContextProtocol` v2.2.0 (stable)
 
 ## Testing Locally
 

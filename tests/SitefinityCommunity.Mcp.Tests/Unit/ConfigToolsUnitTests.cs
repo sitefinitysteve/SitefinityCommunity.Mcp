@@ -37,7 +37,8 @@ public sealed class ConfigToolsUnitTests
     public async Task GetConfigSection_ReturnsFlattenedEntries()
     {
         var (tools, mock) = CreateTools();
-        mock.GetConfigSectionAsync("SystemConfig", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        mock.GetConfigSectionAsync("SystemConfig", Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new ConfigSectionResponse
             {
                 SectionName = "SystemConfig",
@@ -69,10 +70,52 @@ public sealed class ConfigToolsUnitTests
     }
 
     [Fact]
+    public async Task GetConfigSection_DefaultsToOverridesOnlyAndForwardsBounds()
+    {
+        var (tools, mock) = CreateTools();
+        mock.GetConfigSectionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConfigSectionResponse { SectionName = "ContentViewConfig", Found = true });
+
+        await tools.GetConfigSection("ContentViewConfig", pathFilter: "NewsBackend", maxEntries: 50);
+
+        // The bounds must reach the plugin — this is what keeps a defaults-merged section from
+        // returning ~375,000 entries and killing the stdio transport.
+        await mock.Received(1).GetConfigSectionAsync(
+            "ContentViewConfig", "NewsBackend", 50, false, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetConfigSection_ReportsTruncationAndTrueTotal()
+    {
+        var (tools, mock) = CreateTools();
+        mock.GetConfigSectionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConfigSectionResponse
+            {
+                SectionName = "ContentViewConfig",
+                Found = true,
+                Entries = [new ConfigEntry { Path = "contentViewControls[NewsBackend].x", Value = "1" }],
+                TotalCount = 4210,
+                ReturnedCount = 1,
+                Truncated = true,
+                MaxEntries = 500,
+                DefaultsSkipped = 371_334
+            });
+
+        var result = await tools.GetConfigSection("ContentViewConfig");
+
+        Assert.Contains("4210", result);
+        Assert.Contains("true", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("371334", result.Replace(",", string.Empty));
+    }
+
+    [Fact]
     public async Task GetConfigSection_HandlesHttpError()
     {
         var (tools, mock) = CreateTools();
-        mock.GetConfigSectionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        mock.GetConfigSectionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
         var result = await tools.GetConfigSection("NopeConfig");

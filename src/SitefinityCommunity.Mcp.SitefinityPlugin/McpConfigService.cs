@@ -27,6 +27,37 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     public class McpConfigService : Service
     {
         private const int MaxDepth = 12;
+        private const int DefaultMaxEntries = 500;
+        private const int MaxEntriesCeiling = 5000;
+
+        // Sitefinity's config model carries the metadata needed to tell "someone set this" from "this is
+        // the compiled-in default" — but the exact members drift across Sitefinity versions, and this file
+        // is dropped into whatever version the host project runs. Resolve them reflectively once and
+        // degrade gracefully (a missing member simply means that particular filter is not applied),
+        // matching how McpMaintenanceService handles version-variant cache APIs.
+        private static readonly PropertyInfo ConfigPropertyDefaultValue =
+            SafeGetProperty(typeof(ConfigProperty), "DefaultValue");
+
+        private static readonly PropertyInfo ConfigPropertySkipOnExport =
+            SafeGetProperty(typeof(ConfigProperty), "SkipOnExport");
+
+        private static readonly PropertyInfo ConfigPropertyIsSecret =
+            SafeGetProperty(typeof(ConfigProperty), "IsSecret");
+
+        private static readonly PropertyInfo ConfigElementSource =
+            SafeGetProperty(typeof(ConfigElement), "Source");
+
+        private static PropertyInfo SafeGetProperty(Type type, string name)
+        {
+            try
+            {
+                return type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
 
         /// <summary>
         /// GET /RestApi/mcp/config — names of all registered configuration sections.
@@ -65,7 +96,17 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 throw HttpError.BadRequest("SectionName is required.");
             }
 
-            var response = new McpConfigSectionResponse { SectionName = request.SectionName };
+            var maxEntries = request.MaxEntries > 0
+                ? Math.Min(request.MaxEntries, MaxEntriesCeiling)
+                : DefaultMaxEntries;
+
+            var response = new McpConfigSectionResponse
+            {
+                SectionName = request.SectionName,
+                IncludedDefaults = request.IncludeDefaults,
+                PathFilter = request.PathFilter,
+                MaxEntries = maxEntries,
+            };
 
             try
             {
@@ -97,8 +138,37 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     return response;
                 }
 
-                DumpElement(element, string.Empty, response.Entries,
-                    new HashSet<object>(ReferenceEqualityComparer.Instance), 0, response.Warnings);
+                var context = new DumpContext
+                {
+                    IncludeDefaults = request.IncludeDefaults,
+                    PathFilter = string.IsNullOrWhiteSpace(request.PathFilter) ? null : request.PathFilter.Trim(),
+                    MaxEntries = maxEntries,
+                    Entries = response.Entries,
+                    Visited = new HashSet<object>(ReferenceEqualityComparer.Instance),
+                };
+
+                DumpElement(element, string.Empty, context, 0);
+
+                response.TotalCount = context.TotalCount;
+                response.DefaultsSkipped = context.DefaultsSkipped;
+                response.ReturnedCount = response.Entries.Count;
+                response.Truncated = context.TotalCount > response.Entries.Count;
+
+                if (response.Truncated)
+                {
+                    response.Warnings.Add("Result truncated: " + context.TotalCount + " entries matched, " +
+                        response.Entries.Count + " returned (MaxEntries=" + maxEntries + "). Narrow the result " +
+                        "with PathFilter, or raise MaxEntries (ceiling " + MaxEntriesCeiling + ").");
+                }
+
+                if (!request.IncludeDefaults)
+                {
+                    response.Warnings.Add("Showing OVERRIDES ONLY — " + context.DefaultsSkipped + " leaves still " +
+                        "holding their compiled-in default were suppressed. Sitefinity materializes a fully " +
+                        "defaults-merged object graph, so a section like ContentViewConfig expands to hundreds of " +
+                        "thousands of leaves that nobody ever set. Pass IncludeDefaults=true to see them (use " +
+                        "PathFilter as well, or the result will be capped).");
+                }
 
                 response.Warnings.Add("Credential-like values (keys, passwords, connection strings, tokens, " +
                     "encrypted/[SecretData] properties) are ALWAYS redacted and never returned — by design, " +
@@ -218,22 +288,27 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// enumerable branch (checked first) walks dictionary/collection items, keyed by
         /// <see cref="ConfigElement.GetKey()"/>.
         /// </summary>
-        private static void DumpElement(
-            ConfigElement element,
-            string path,
-            List<McpConfigEntry> entries,
-            HashSet<object> visited,
-            int depth,
-            List<string> warnings)
+        private static void DumpElement(ConfigElement element, string path, DumpContext ctx, int depth)
         {
             if (element == null || depth > MaxDepth)
             {
                 return;
             }
 
-            if (!visited.Add(element))
+            if (!ctx.Visited.Add(element))
             {
                 return; // cycle guard
+            }
+
+            // Whole-subtree prune. An element Sitefinity reports as sourced from Default holds nothing a
+            // human ever touched, so the entire branch below it is scaffolding. Only an explicit "Default"
+            // prunes — "NotSet" means this Sitefinity version does not populate Source reliably here, so
+            // keep walking and let the per-leaf default comparison decide. Never prune the section root
+            // itself (depth 0): an untouched section should still report its shape, not come back empty.
+            if (!ctx.IncludeDefaults && depth > 0 && IsDefaultSourced(element))
+            {
+                ctx.DefaultsSkipped++;
+                return;
             }
 
             ConfigPropertyCollection props;
@@ -260,6 +335,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     continue;
                 }
 
+                // Sitefinity's own "leave this out of an export" marker — machinery, never user intent.
+                if (!ctx.IncludeDefaults && ReadBool(ConfigPropertySkipOnExport, cp))
+                {
+                    ctx.DefaultsSkipped++;
+                    continue;
+                }
+
                 object value;
                 try
                 {
@@ -271,10 +353,17 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 }
 
                 var childPath = string.IsNullOrEmpty(path) ? cp.Name : path + "." + cp.Name;
+                var isSecret = ReadBool(ConfigPropertyIsSecret, cp);
 
                 if (value == null)
                 {
-                    entries.Add(BuildEntry(childPath, cp.Name, null, ownerType));
+                    if (!ctx.IncludeDefaults)
+                    {
+                        ctx.DefaultsSkipped++;
+                        continue;
+                    }
+
+                    ctx.Emit(childPath, cp.Name, null, ownerType, isSecret);
                     continue;
                 }
 
@@ -287,11 +376,11 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                         if (item is ConfigElement childElement)
                         {
                             var key = ElementKey(childElement) ?? index.ToString();
-                            DumpElement(childElement, childPath + "[" + key + "]", entries, visited, depth + 1, warnings);
+                            DumpElement(childElement, childPath + "[" + key + "]", ctx, depth + 1);
                         }
                         else if (item != null)
                         {
-                            entries.Add(BuildEntry(childPath + "[" + index + "]", cp.Name, item, ownerType));
+                            ctx.Emit(childPath + "[" + index + "]", cp.Name, item, ownerType, isSecret);
                         }
 
                         index++;
@@ -303,12 +392,97 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 // Nested single element.
                 if (value is ConfigElement nested)
                 {
-                    DumpElement(nested, childPath, entries, visited, depth + 1, warnings);
+                    DumpElement(nested, childPath, ctx, depth + 1);
                     continue;
                 }
 
                 // Scalar leaf.
-                entries.Add(BuildEntry(childPath, cp.Name, value, ownerType));
+                if (!ctx.IncludeDefaults && IsDefaultValue(cp, value))
+                {
+                    ctx.DefaultsSkipped++;
+                    continue;
+                }
+
+                ctx.Emit(childPath, cp.Name, value, ownerType, isSecret);
+            }
+        }
+
+        /// <summary>
+        /// True when a leaf still holds what the config model declares as its default — including the
+        /// empty-string case, which carries no information whether or not a default is declared. This is
+        /// the check that collapses a defaults-merged section back to the handful of values a human set.
+        /// </summary>
+        private static bool IsDefaultValue(ConfigProperty cp, object value)
+        {
+            var raw = value == null ? string.Empty : value.ToString();
+
+            if (raw.Length == 0)
+            {
+                return true;
+            }
+
+            if (ConfigPropertyDefaultValue == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var declared = ConfigPropertyDefaultValue.GetValue(cp, null);
+                var declaredRaw = declared == null ? string.Empty : declared.ToString();
+                return string.Equals(raw, declaredRaw, StringComparison.Ordinal);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True when Sitefinity reports this element as coming from compiled-in defaults. The
+        /// <c>ConfigSource</c> enum is <c>NotSet | Default | FileSystem | Database | Import</c>; only an
+        /// explicit <c>Default</c> is safe to prune on, since <c>NotSet</c> means "unknown here".
+        /// </summary>
+        private static bool IsDefaultSourced(ConfigElement element)
+        {
+            if (ConfigElementSource == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var source = ConfigElementSource.GetValue(element, null);
+
+                if (source == null)
+                {
+                    return false;
+                }
+
+                return string.Equals(source.ToString(), "Default", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Reads a reflectively-resolved bool property, defaulting to false when unavailable.</summary>
+        private static bool ReadBool(PropertyInfo property, object instance)
+        {
+            if (property == null || instance == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var value = property.GetValue(instance, null);
+                return value is bool b && b;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -320,16 +494,19 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// <see cref="McpSecretRedactor"/>:
         ///   • the standard deny-list / value-pattern scan,
         ///   • any path or leaf name signalling secrecy (key, connectionstring, password, token, …),
+        ///   • <c>ConfigProperty.IsSecret</c> — the config model's own first-class secret marker,
         ///   • properties Sitefinity marks <c>[SecretData]</c> — i.e. values stored ENCRYPTED on disk,
         ///   • whole values shaped like a connection string.
         /// Over-redaction is intentional: a config dump must never be a credential exfiltration path.
         /// </summary>
-        private static McpConfigEntry BuildEntry(string path, string leafName, object value, Type ownerType)
+        private static McpConfigEntry BuildEntry(
+            string path, string leafName, object value, Type ownerType, bool isSecretProperty)
         {
             var raw = value == null ? string.Empty : value.ToString();
 
             var mustRedact =
-                McpSecretRedactor.IsDeniedKey(leafName)
+                isSecretProperty
+                || McpSecretRedactor.IsDeniedKey(leafName)
                 || IsSensitiveConfigPath(path, leafName)
                 || IsSecretDataProperty(ownerType, leafName)
                 || LooksLikeConnectionString(raw);
@@ -450,6 +627,50 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Options and running totals threaded through the recursive walk. Entries are counted before the
+        /// cap is applied, so <see cref="TotalCount"/> reports the true match count even when the returned
+        /// list was trimmed — the caller can tell "there are 40,000 of these" from "there are 12".
+        /// </summary>
+        private sealed class DumpContext
+        {
+            public bool IncludeDefaults { get; set; }
+
+            public string PathFilter { get; set; }
+
+            public int MaxEntries { get; set; }
+
+            public List<McpConfigEntry> Entries { get; set; }
+
+            public HashSet<object> Visited { get; set; }
+
+            public int TotalCount { get; set; }
+
+            public int DefaultsSkipped { get; set; }
+
+            /// <summary>
+            /// Records one matching leaf. Counting continues past the cap — only materialization stops,
+            /// which is what keeps the response bounded while the reported total stays honest.
+            /// </summary>
+            public void Emit(string path, string leafName, object value, Type ownerType, bool isSecretProperty)
+            {
+                if (this.PathFilter != null &&
+                    (path == null || path.IndexOf(this.PathFilter, StringComparison.OrdinalIgnoreCase) < 0))
+                {
+                    return;
+                }
+
+                this.TotalCount++;
+
+                if (this.Entries.Count >= this.MaxEntries)
+                {
+                    return;
+                }
+
+                this.Entries.Add(BuildEntry(path, leafName, value, ownerType, isSecretProperty));
             }
         }
 

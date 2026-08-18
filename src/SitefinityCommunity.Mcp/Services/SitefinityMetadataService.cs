@@ -236,14 +236,40 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     }
 
     public async Task<ConfigSectionResponse> GetConfigSectionAsync(
-        string sectionName, string? environment = null, CancellationToken ct = default)
+        string sectionName,
+        string? pathFilter = null,
+        int maxEntries = 0,
+        bool includeDefaults = false,
+        string? environment = null,
+        CancellationToken ct = default)
     {
         // Credential-like config values (keys, passwords, connection strings, [SecretData] / encrypted
         // properties) are ALWAYS redacted on the plugin side — there is intentionally no flag to reveal
         // them, in any environment. A raw secret in the LLM context is a leak.
         var client = CreateClient(environment);
         var encoded = Uri.EscapeDataString(sectionName);
-        var response = await client.GetAsync($"/RestApi/mcp/config/{encoded}?format=json", ct);
+
+        // Bounded by default. Sitefinity hands back a fully defaults-merged object graph, so an unbounded
+        // dump of a section like ContentViewConfig is ~79 MB / 375k entries — large enough to kill the
+        // stdio transport before the caller sees anything.
+        var query = $"/RestApi/mcp/config/{encoded}?format=json";
+
+        if (!string.IsNullOrWhiteSpace(pathFilter))
+        {
+            query += $"&PathFilter={Uri.EscapeDataString(pathFilter)}";
+        }
+
+        if (maxEntries > 0)
+        {
+            query += $"&MaxEntries={maxEntries}";
+        }
+
+        if (includeDefaults)
+        {
+            query += "&IncludeDefaults=true";
+        }
+
+        var response = await client.GetAsync(query, ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 

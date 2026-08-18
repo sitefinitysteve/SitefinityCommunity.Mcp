@@ -531,6 +531,23 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     public class GetConfigSection : IReturn<McpConfigSectionResponse>
     {
         public string SectionName { get; set; }
+
+        /// <summary>
+        /// When true, emit every property Sitefinity materializes, including values still sitting at
+        /// their compiled-in defaults. Off by default: a defaults-merged section such as
+        /// ContentViewConfig expands to hundreds of thousands of leaves, the overwhelming majority of
+        /// which nobody ever set.
+        /// </summary>
+        public bool IncludeDefaults { get; set; }
+
+        /// <summary>
+        /// Case-insensitive substring; only entries whose path contains it are returned. The walk still
+        /// visits the whole section, so <see cref="TotalCount"/> stays honest.
+        /// </summary>
+        public string PathFilter { get; set; }
+
+        /// <summary>Maximum entries to return. Defaults to 500, clamped to 5000.</summary>
+        public int MaxEntries { get; set; }
     }
 
     public class McpConfigSectionsResponse
@@ -550,7 +567,27 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string SectionName { get; set; }
         public string SectionType { get; set; }
         public bool Found { get; set; }
+
+        /// <summary>Entries that matched the filter, capped at <see cref="MaxEntries"/>.</summary>
         public List<McpConfigEntry> Entries { get; set; } = new List<McpConfigEntry>();
+
+        /// <summary>Total entries that matched the filter across the whole section, ignoring the cap.</summary>
+        public int TotalCount { get; set; }
+
+        /// <summary>Entries actually returned — <c>Entries.Count</c>, echoed for convenience.</summary>
+        public int ReturnedCount { get; set; }
+
+        /// <summary>True when <see cref="TotalCount"/> exceeded the cap and entries were dropped.</summary>
+        public bool Truncated { get; set; }
+
+        /// <summary>Echo of the applied options, so a caller can see what shaped the result.</summary>
+        public bool IncludedDefaults { get; set; }
+        public string PathFilter { get; set; }
+        public int MaxEntries { get; set; }
+
+        /// <summary>Leaves suppressed because they still held their compiled-in default value.</summary>
+        public int DefaultsSkipped { get; set; }
+
         public List<string> Warnings { get; set; } = new List<string>();
     }
 

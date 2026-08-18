@@ -89,7 +89,7 @@ builder.Services
     .WithToolsFromAssembly()
     .WithResourcesFromAssembly()
     // API key validation filter — runs before every tool call
-    .AddCallToolFilter(next => async (context, cancellationToken) =>
+    .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
     {
         var validator = context.Services!.GetRequiredService<IApiKeyValidationService>();
 
@@ -110,7 +110,10 @@ builder.Services
         {
             try
             {
-                return await next(context, cancellationToken);
+                // Backstop: an oversized result does not fail gracefully on the stdio transport — it drops
+                // the connection ("-32000: Connection closed") with no indication of which tool caused it.
+                // Tools bound their own output; this catches any that don't.
+                return ToolOutputLimiter.Apply(await next(context, cancellationToken));
             }
             catch (SitefinityBootstrappingException ex)
             {
@@ -198,7 +201,7 @@ builder.Services
         }
 
         return await InvokeWithBootstrapGuard();
-    });
+    }));
 
 await builder.Build().RunAsync();
 return 0;

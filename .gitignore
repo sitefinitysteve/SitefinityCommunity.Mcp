@@ -38,3 +38,5 @@ Thumbs.db
 .claude
 /artifacts
 .dotnet-home
+## Local dev only (not for the public repo)
+sync-plugin-dev.ps1
