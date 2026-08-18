@@ -13,7 +13,9 @@ const { version } = require("./package.json");
 
 const RID_MAP = {
     "win32-x64": "win-x64",
+    "win32-arm64": "win-arm64",
     "linux-x64": "linux-x64",
+    "linux-arm64": "linux-arm64",
     "darwin-x64": "osx-x64",
     "darwin-arm64": "osx-arm64",
 };
@@ -23,7 +25,7 @@ const rid = RID_MAP[key];
 
 if (!rid) {
     console.error(`sitefinity-comm-mcp: unsupported platform '${key}'.`);
-    console.error("Supported: win32-x64, linux-x64, darwin-x64, darwin-arm64.");
+    console.error("Supported: win32-x64/arm64, linux-x64/arm64, darwin-x64/arm64.");
     console.error("You can run from source instead: https://github.com/sitefinitysteve/SitefinityCommunity.Mcp");
     process.exit(1);
 }

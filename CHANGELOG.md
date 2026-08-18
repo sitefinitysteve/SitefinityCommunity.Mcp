@@ -2,6 +2,12 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] — 2026-08-18
+
+### Fixed
+
+- **ARM support in the npm distribution.** `npm install -g sitefinity-comm-mcp` failed outright on Windows-on-ARM and ARM Linux — the release pipeline only built x64 (plus macOS arm64) binaries and the installer's platform map rejected everything else. Releases now ship `win-arm64` and `linux-arm64` self-contained binaries as well, and the installer maps all six platforms.
+
 ## [2.0.0] — 2026-08-18
 
 Goes all-in on the modern MCP spec — structured tool output with published schemas, human-readable tool titles, a new full-text search across all Advanced Settings — and makes installation a one-liner. Major version because the tool output contract changed: data tools now return `structuredContent` and report failures as protocol errors.
