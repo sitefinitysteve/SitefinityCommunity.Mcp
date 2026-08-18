@@ -22,7 +22,7 @@ public sealed class LogTools
         this._logParser = logParser;
     }
 
-    [McpServerTool(Name = "sitefinity_read_error_log", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_read_error_log", Title = "Read Error Log", ReadOnly = true)]
     [Description("Read the last N entries from Sitefinity's Error.log. Returns parsed error entries with timestamp, message, severity, stack trace, and requested URL.")]
     public async Task<string> ReadErrorLog(
         [Description("Number of entries to return (default: 10, max: 50)")] int count = 10,
@@ -33,7 +33,7 @@ public sealed class LogTools
         return await ReadLogByName("Error.log", count, environment, ct);
     }
 
-    [McpServerTool(Name = "sitefinity_read_trace_log", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_read_trace_log", Title = "Read Trace Log", ReadOnly = true)]
     [Description("Read the last N entries from Sitefinity's Trace.log. Returns parsed trace entries with timestamp and message.")]
     public async Task<string> ReadTraceLog(
         [Description("Number of entries to return (default: 10, max: 50)")] int count = 10,
@@ -44,7 +44,7 @@ public sealed class LogTools
         return await ReadLogByName("Trace.log", count, environment, ct);
     }
 
-    [McpServerTool(Name = "sitefinity_list_log_files", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_log_files", Title = "List Log Files", ReadOnly = true)]
     [Description("List all Sitefinity log files with their size and last modified date.")]
     public async Task<string> ListLogFiles(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
@@ -77,7 +77,7 @@ public sealed class LogTools
         }
     }
 
-    [McpServerTool(Name = "sitefinity_read_log_file", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_read_log_file", Title = "Read Log File", ReadOnly = true)]
     [Description("Read any Sitefinity log file by name. Returns the last N parsed entries from the specified file.")]
     public async Task<string> ReadLogFile(
         [Description("Name of the log file (e.g., 'Error.log', 'Trace.log')")] string fileName,
@@ -89,7 +89,7 @@ public sealed class LogTools
         return await ReadLogByName(fileName, count, environment, ct);
     }
 
-    [McpServerTool(Name = "sitefinity_search_logs", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_search_logs", Title = "Search Logs", ReadOnly = true)]
     [Description("Search Sitefinity log files using a regex pattern. Returns matching lines with surrounding context. Searches newest files first and stops after maxMatches hits, so it stays fast on large prod logs. To narrow a slow search, set fileName (e.g. 'Error.log') to search a single file instead of the whole rolled set.")]
     public async Task<string> SearchLogs(
         [Description("Regex pattern to search for (e.g., 'NullReference', 'timeout.*sql')")] string pattern,
@@ -143,7 +143,7 @@ public sealed class LogTools
         }
     }
 
-    [McpServerTool(Name = "sitefinity_get_last_error", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_get_last_error", Title = "Get Last Error", ReadOnly = true)]
     [Description("Get the most recent error from Sitefinity's Error.log with full details including stack trace.")]
     public async Task<string> GetLastError(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,

@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -49,13 +51,13 @@ public sealed class WhereUsedToolsUnitTests
                 ]
             });
 
-        var result = await tools.WhereUsed("ContentBlock");
+        var result = JsonSerializer.Serialize(await tools.WhereUsed("ContentBlock"));
 
         Assert.Contains("ContentBlock", result);
         Assert.Contains("/home", result);
         Assert.Contains("/about", result);
         Assert.Contains("ControllerName matches", result);
-        Assert.Contains("\"TotalUsages\": 2", result);
+        Assert.Contains("\"TotalUsages\":2", result);
     }
 
     [Fact]
@@ -74,7 +76,7 @@ public sealed class WhereUsedToolsUnitTests
                 ]
             });
 
-        var result = await tools.WhereUsed("11111111-1111-1111-1111-111111111111", "template");
+        var result = JsonSerializer.Serialize(await tools.WhereUsed("11111111-1111-1111-1111-111111111111", "template"));
 
         Assert.Contains("Base Template", result);
         Assert.Contains("Child Template", result);
@@ -86,10 +88,9 @@ public sealed class WhereUsedToolsUnitTests
     {
         var (tools, _) = CreateTools();
 
-        var result = await tools.WhereUsed("");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.WhereUsed(""));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("query is required", result);
+        Assert.Contains("query is required", ex.Message);
     }
 
     [Fact]
@@ -99,9 +100,8 @@ public sealed class WhereUsedToolsUnitTests
         mock.WhereUsedAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("boom"));
 
-        var result = await tools.WhereUsed("ContentBlock");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.WhereUsed("ContentBlock"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 }

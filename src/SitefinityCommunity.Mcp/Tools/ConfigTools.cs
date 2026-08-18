@@ -1,6 +1,7 @@
 using System.ComponentModel;
-using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using SitefinityCommunity.Mcp.Models;
 using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
@@ -13,12 +14,6 @@ namespace SitefinityCommunity.Mcp.Tools;
 [McpServerToolType]
 public sealed class ConfigTools
 {
-    /// <summary>Indented for small results, where a human may read the raw JSON.</summary>
-    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
-
-    /// <summary>Compact for large results — indentation roughly doubles the payload for no gain.</summary>
-    private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
-
     private readonly ISitefinityMetadataService _metadataService;
 
     public ConfigTools(ISitefinityMetadataService metadataService)
@@ -26,11 +21,11 @@ public sealed class ConfigTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_list_config_sections", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_config_sections", Title = "List Config Sections", ReadOnly = true, UseStructuredContent = true)]
     [Description("List the names of all registered Sitefinity configuration sections (e.g. systemConfig, " +
                  "securityConfig, multisiteConfig, projectConfig). Use this to discover a valid section name " +
                  "before calling sitefinity_get_config_section.")]
-    public async Task<string> ListConfigSections(
+    public async Task<ConfigSectionsResponse> ListConfigSections(
         [Description("Target environment name (uses default if omitted)")]
         string? environment = null,
         CancellationToken ct = default)
@@ -38,19 +33,55 @@ public sealed class ConfigTools
         try
         {
             var response = await this._metadataService.ListConfigSectionsAsync(environment, ct);
-            return JsonSerializer.Serialize(response, IndentedJson);
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 
-    [McpServerTool(Name = "sitefinity_get_config_section", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_search_settings", Title = "Search Advanced Settings", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Full-text search across ALL Sitefinity Advanced Settings using the backend " +
+                 "'advanced-settings-search' Lucene index (Sitefinity 14.1+). Answers \"which section is " +
+                 "setting X in?\" when you don't know where a setting lives — each hit includes the setting's " +
+                 "caption, breadcrumb path, and owning section, which you can then dump with " +
+                 "sitefinity_get_config_section + pathFilter. If the index is disabled or not yet built, the " +
+                 "response says so and explains how to enable it. Values are secret-redacted.")]
+    public async Task<SettingsSearchResponse> SearchSettings(
+        [Description("Full-text query, e.g. \"output cache\", \"smtp host\", \"session timeout\".")]
+        string query,
+        [Description("Maximum results (default: 25, max: 100).")]
+        int take = 0,
+        [Description("Target environment name (uses default if omitted)")]
+        string? environment = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            throw new McpException("Error: query is required.");
+        }
+
+        try
+        {
+            var response = await this._metadataService.SearchSettingsAsync(query, take, environment, ct);
+            return response;
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin (v2.0.0+) is installed and the site is running.");
+        }
+        catch (Exception ex)
+        {
+            throw new McpException($"Error: {ex.Message}");
+        }
+    }
+
+    [McpServerTool(Name = "sitefinity_get_config_section", Title = "Get Config Section", ReadOnly = true, UseStructuredContent = true)]
     [Description("Dump a single Sitefinity configuration section as a flattened list of name/value entries. " +
                  "Nested elements and dictionaries are expressed as dotted/indexed paths. " +
                  "By default this returns OVERRIDES ONLY — values someone actually changed — because Sitefinity " +
@@ -60,7 +91,7 @@ public sealed class ConfigTools
                  "Credential-like values (keys, passwords, connection strings, tokens, encrypted/[SecretData] " +
                  "properties) are ALWAYS redacted and never returned — in every environment, with no flag to " +
                  "reveal them. Call sitefinity_list_config_sections first to discover valid section names.")]
-    public async Task<string> GetConfigSection(
+    public async Task<ConfigSectionResponse> GetConfigSection(
         [Description("Config section name, e.g. \"systemConfig\", \"securityConfig\", \"multisiteConfig\".")]
         string sectionName,
         [Description("Case-insensitive substring; only entries whose path contains it are returned. " +
@@ -78,7 +109,7 @@ public sealed class ConfigTools
     {
         if (string.IsNullOrWhiteSpace(sectionName))
         {
-            return "Error: sectionName is required. Call sitefinity_list_config_sections to discover valid names.";
+            throw new McpException("Error: sectionName is required. Call sitefinity_list_config_sections to discover valid names.");
         }
 
         try
@@ -86,16 +117,15 @@ public sealed class ConfigTools
             var response = await this._metadataService.GetConfigSectionAsync(
                 sectionName, pathFilter, maxEntries, includeDefaults, environment, ct);
 
-            return JsonSerializer.Serialize(
-                response, response.Entries.Count <= 200 ? IndentedJson : CompactJson);
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 }

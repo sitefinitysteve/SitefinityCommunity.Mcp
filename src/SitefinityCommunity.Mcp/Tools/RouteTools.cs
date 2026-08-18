@@ -19,7 +19,7 @@ public sealed class RouteTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_list_page_routes", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_page_routes", Title = "List Page Routes", ReadOnly = true)]
     [Description("List all CMS frontend page routes. Returns a compact markdown list of each published page with its URL, title, and any legacy URLs that redirect to it.")]
     public async Task<string> ListPageRoutes(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
@@ -45,16 +45,23 @@ public sealed class RouteTools
                     var url = StripHost(page.Url);
                     var title = string.IsNullOrEmpty(page.Title) ? "(untitled)" : page.Title;
 
+                    var line = $"- `{url}` — {title} [{(page.IsPublished ? "Published" : "Draft")}]";
+
+                    if (page.HasUrlEvaluation)
+                    {
+                        // URL evaluation means sub-paths route into this page — the classic source of
+                        // "why does this URL resolve?" confusion, so it earns a per-line flag.
+                        line += $" [URL eval: {page.UrlEvaluationMode}]";
+                    }
+
                     if (page.AdditionalUrls.Count > 0)
                     {
                         // Inline alternates — cheaper than a line each on pages with many redirects
                         var alts = string.Join(", ", page.AdditionalUrls.Select(StripHost));
-                        sb.AppendLine($"- `{url}` — {title} _(redirects: {alts})_");
+                        line += $" _(redirects: {alts})_";
                     }
-                    else
-                    {
-                        sb.AppendLine($"- `{url}` — {title}");
-                    }
+
+                    sb.AppendLine(line);
                 }
             }
 
@@ -66,6 +73,11 @@ public sealed class RouteTools
                 {
                     sb.AppendLine($"- \u26a0 {warning}");
                 }
+            }
+            else
+            {
+                sb.AppendLine();
+                sb.AppendLine("No issues detected.");
             }
 
             return sb.ToString();
@@ -109,7 +121,7 @@ public sealed class RouteTools
         return url;
     }
 
-    [McpServerTool(Name = "sitefinity_list_api_routes", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_api_routes", Title = "List API Routes", ReadOnly = true)]
     [Description("List all API routes: ServiceStack REST API routes and OData entity sets. Use this to discover available API endpoints for integration.")]
     public async Task<string> ListApiRoutes(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,

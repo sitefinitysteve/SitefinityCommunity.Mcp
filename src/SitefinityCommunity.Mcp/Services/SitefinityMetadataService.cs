@@ -235,6 +235,69 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             ?? new ConfigSectionsResponse();
     }
 
+    public async Task<SettingsSearchResponse> SearchSettingsAsync(
+        string query, int take = 0, string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var url = $"/RestApi/mcp/settings/search?format=json&Query={Uri.EscapeDataString(query)}";
+
+        if (take > 0)
+        {
+            url += $"&Take={take}";
+        }
+
+        var response = await client.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        var result = await response.Content.ReadFromJsonAsync<SettingsSearchResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new SettingsSearchResponse { Query = query };
+
+        foreach (var hit in result.Results)
+        {
+            hit.Path = PrettifySettingPath(hit.Path);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Renders the index's internal FullSettingName as a readable breadcrumb. The raw value is a
+    /// leaf-to-root chain of node keys separated by <c>fA==</c> (base64 of <c>|</c>), each key shaped
+    /// like <c>ElementTypeName_MemberName</c> — e.g.
+    /// <c>FieldDefinitionElement_HighContrastfA==FieldsfA==…fA==contentViewConfig</c> becomes
+    /// <c>contentViewConfig > … > Fields > HighContrast</c>.
+    /// </summary>
+    private static string? PrettifySettingPath(string? rawPath)
+    {
+        if (string.IsNullOrEmpty(rawPath) || !rawPath.Contains("fA==", StringComparison.Ordinal))
+        {
+            return rawPath;
+        }
+
+        var segments = rawPath.Split("fA==", StringSplitOptions.RemoveEmptyEntries);
+        Array.Reverse(segments); // leaf-to-root → root-to-leaf
+
+        var parts = new List<string>(segments.Length);
+
+        foreach (var segment in segments)
+        {
+            // Strip the element-type prefix ("FieldDefinitionElement_HighContrast" → "HighContrast");
+            // keep segments without one (plain member names like "Fields") as-is.
+            var underscore = segment.IndexOf('_');
+            var display = underscore > 0 && segment[..underscore].EndsWith("Element", StringComparison.Ordinal)
+                ? segment[(underscore + 1)..]
+                : segment;
+
+            if (display.Length > 0)
+            {
+                parts.Add(display);
+            }
+        }
+
+        return string.Join(" > ", parts);
+    }
+
     public async Task<ConfigSectionResponse> GetConfigSectionAsync(
         string sectionName,
         string? pathFilter = null,

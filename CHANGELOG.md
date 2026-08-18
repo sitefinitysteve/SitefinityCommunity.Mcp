@@ -2,6 +2,32 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — 2026-08-18
+
+Goes all-in on the modern MCP spec — structured tool output with published schemas, human-readable tool titles, a new full-text search across all Advanced Settings — and makes installation a one-liner. Major version because the tool output contract changed: data tools now return `structuredContent` and report failures as protocol errors.
+
+### Added
+
+- **`sitefinity_search_settings`** — full-text search across ALL Advanced Settings via the backend `advanced-settings-search` Lucene index (Sitefinity 14.1+). Answers "which section is setting X in?" — the question a section dump can't, because it requires already knowing the section. Each hit carries the setting's caption, breadcrumb path, and owning section, ready to feed into `sitefinity_get_config_section` + `pathFilter`. Implemented fully reflectively on the plugin side (the search API drifts across Sitefinity versions); when the index is disabled or missing, the response sets `IndexAvailable: false` and explains how to enable it instead of erroring. Result values are secret-redacted — the index stores config values.
+- **Structured tool output (`UseStructuredContent`).** The 16 data-returning tools (config, content, forms, pages, permissions, taxonomies, templates, where-used, maintenance) now return typed response models: each publishes an `outputSchema` in `tools/list` and returns `structuredContent` alongside the text, so clients can consume results without parsing JSON out of a text block. The 6 human-formatted tools (logs, status, routes, environments, site info) intentionally stay textual.
+- **Human-readable `Title` on all 32 tools** (e.g. "Search Advanced Settings") for clients that render tool lists.
+- **One-line installation.** The server is now a packaged dotnet tool: `dotnet tool install -g SitefinityCommunity.Mcp` puts `sitefinity-mcp` on PATH — no clone, no build. Releases also attach self-contained single-file binaries (win-x64, linux-x64, osx-x64/arm64) that run without any .NET install.
+
+### Changed
+
+- **Tool errors are now protocol errors.** Data tools throw `McpException` instead of returning `"Error: ..."` strings — clients see a proper `isError` result with the same guidance text (plugin-missing hints, write-gate refusals, validation messages).
+- **`ToolOutputLimiter` also bounds `structuredContent`.** An oversized structured payload is serialized into the same JSON-RPC frame as text and can kill the transport just as easily; since a sliced JSON object is useless, an over-limit structured payload is dropped whole with an explanatory note while the (truncated) text carries the data.
+
+### Fixed
+
+- **`sitefinity_list_page_routes` regained its diagnostic detail.** Each page line again carries `[Published]`/`[Draft]` status and a `[URL eval: Mode]` flag when URL evaluation routes sub-paths into the page; both route tools print "No issues detected." when the warnings list is empty.
+- `McpSettingsSearchService` registered in `McpServicePlugin` (service registration is an explicit list, not assembly scan).
+- Settings search queries are built the way Sitefinity's own query builder does it — an OR `SearchQueryGroup` of per-field `SearchTerm`s (the Lucene service compiles `SearchGroup`, not `Text`), executed under `RunWithElevatedPrivilege` because the secured `advanced-settings-search` publishing point silently returns an empty set for non-backend identities. Result paths are rendered as readable breadcrumbs (`contentViewConfig > ContentViewControls > … > Fields > HighContrast`).
+
+### Upgrading
+
+The plugin changed (new service + registration), so redeploy the plugin source (`install-plugin.ps1` — a NEW file must be registered in the `.csproj`, so use the installer, not a bare copy) and recycle. Restart the MCP server for the client-side changes. **Behavior change for API consumers:** data tools now return results in `structuredContent` (camelCase keys per SDK convention) and report failures as `isError` results instead of `"Error: ..."` text.
+
 ## [1.8.0] — 2026-08-18
 
 Fixes a config dump large enough to kill the MCP connection outright, and adds a transport-level backstop so no tool can do that again.

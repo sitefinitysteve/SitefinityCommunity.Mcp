@@ -40,3 +40,8 @@ Thumbs.db
 .dotnet-home
 ## Local dev only (not for the public repo)
 sync-plugin-dev.ps1
+
+## npm shim build artifacts
+npm/dist/
+npm/download-*.tar.gz
+npm/node_modules/

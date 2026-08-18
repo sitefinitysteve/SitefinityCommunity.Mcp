@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -30,7 +32,7 @@ public sealed class TemplateToolsUnitTests
                 ],
             });
 
-        var result = await tools.ListTemplates();
+        var result = JsonSerializer.Serialize(await tools.ListTemplates());
 
         Assert.Contains("Default", result);
         Assert.Contains("LegacyWF", result);
@@ -45,9 +47,9 @@ public sealed class TemplateToolsUnitTests
         mock.ListTemplatesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new TemplatesResponse());
 
-        var result = await tools.ListTemplates();
+        var result = JsonSerializer.Serialize(await tools.ListTemplates());
 
-        Assert.Contains("\"Templates\": []", result);
+        Assert.Contains("\"Templates\":[]", result);
     }
 
     [Fact]
@@ -57,9 +59,9 @@ public sealed class TemplateToolsUnitTests
         mock.ListTemplatesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Unreachable"));
 
-        var result = await tools.ListTemplates();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ListTemplates());
 
-        Assert.StartsWith("Error:", result);
-        Assert.Contains("Unreachable", result);
+        Assert.StartsWith("Error:", ex.Message);
+        Assert.Contains("Unreachable", ex.Message);
     }
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel;
-using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using SitefinityCommunity.Mcp.Models;
 using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
@@ -20,7 +21,7 @@ public sealed class PermissionTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_get_permissions", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_get_permissions", Title = "Get Permissions", ReadOnly = true, UseStructuredContent = true)]
     [Description("Inspect the effective permissions on a page or content item. Decodes each principal's " +
                  "granted/denied actions (View, Modify, Delete, Create, ChangePermissions, …) into EFFECTIVE " +
                  "access (deny wins over grant) across each permission set, flags whether the object is public " +
@@ -28,7 +29,7 @@ public sealed class PermissionTools
                  "inherits permissions (and from which parent). Pass a page identifier (Guid, URL, or title) for " +
                  "a page; for a content item pass its Guid and the content type's full name via typeFullName. " +
                  "Use to answer \"is this page public?\" or \"why can't this role see/edit this?\".")]
-    public async Task<string> GetPermissions(
+    public async Task<PermissionsResponse> GetPermissions(
         [Description("Page identifier (Guid, URL, or title) or content item Guid.")]
         string identifier,
         [Description("For a content item, the full CLR type name (e.g. \"Telerik.Sitefinity.News.Model.NewsItem\"). " +
@@ -40,21 +41,21 @@ public sealed class PermissionTools
     {
         if (string.IsNullOrWhiteSpace(identifier))
         {
-            return "Error: identifier is required (a page identifier or a content item Guid).";
+            throw new McpException("Error: identifier is required (a page identifier or a content item Guid).");
         }
 
         try
         {
             var response = await this._metadataService.GetPermissionsAsync(identifier, typeFullName, environment, ct);
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 }

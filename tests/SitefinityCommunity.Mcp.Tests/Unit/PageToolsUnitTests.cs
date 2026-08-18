@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -47,7 +49,7 @@ public sealed class PageToolsUnitTests
                 ]
             });
 
-        var result = await tools.GetPageDetails("/ug/macdot");
+        var result = JsonSerializer.Serialize(await tools.GetPageDetails("/ug/macdot"));
 
         Assert.Contains("MacDot Dashboard", result);
         Assert.Contains("/ug/macdot", result);
@@ -64,10 +66,9 @@ public sealed class PageToolsUnitTests
         mock.GetPageDetailsAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
-        var result = await tools.GetPageDetails("/nonexistent-page");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetPageDetails("/nonexistent-page"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 
     [Fact]
@@ -103,7 +104,7 @@ public sealed class PageToolsUnitTests
                 ]
             });
 
-        var result = await tools.GetPageDetails("/test");
+        var result = JsonSerializer.Serialize(await tools.GetPageDetails("/test"));
 
         Assert.Contains("11111111-2222-3333-4444-555555555555", result);
         Assert.Contains("SharedContentID", result);
@@ -136,7 +137,7 @@ public sealed class PageToolsUnitTests
                 }
             });
 
-        var result = await tools.GetWidgetProperties("11111111-2222-3333-4444-555555555555", "/test-page");
+        var result = JsonSerializer.Serialize(await tools.GetWidgetProperties("11111111-2222-3333-4444-555555555555", "/test-page"));
 
         Assert.Contains("ContentBlock", result);
         Assert.Contains("SharedContentID", result);
@@ -153,10 +154,9 @@ public sealed class PageToolsUnitTests
         mock.GetWidgetPropertiesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
-        var result = await tools.GetWidgetProperties("00000000-0000-0000-0000-000000000000", "/test-page");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetWidgetProperties("00000000-0000-0000-0000-000000000000", "/test-page"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class PageToolsUnitTests
                 ],
             });
 
-        var result = await tools.GetPageWidgetTree("/home");
+        var result = JsonSerializer.Serialize(await tools.GetPageWidgetTree("/home"));
 
         Assert.Contains("Home", result);
         Assert.Contains("/home", result);
@@ -234,7 +234,7 @@ public sealed class PageToolsUnitTests
         Assert.Contains("w-layout_Col01", result);
         Assert.Contains("Left", result);
         Assert.Contains("Right", result);
-        Assert.Contains("\"IsLayoutControl\": true", result);
+        Assert.Contains("\"IsLayoutControl\":true", result);
     }
 
     [Fact]
@@ -265,9 +265,9 @@ public sealed class PageToolsUnitTests
                 ],
             });
 
-        var result = await tools.GetPageWidgetTree("/page");
+        var result = JsonSerializer.Serialize(await tools.GetPageWidgetTree("/page"));
 
-        Assert.Contains("\"TemplateName\": \"B\"", result);
+        Assert.Contains("\"TemplateName\":\"B\"", result);
         Assert.DoesNotContain("\"TemplateName\": \"A\"", result);
     }
 
@@ -298,7 +298,7 @@ public sealed class PageToolsUnitTests
                 ],
             });
 
-        var result = await tools.GetPageWidgetTree("/home", includeLayoutControls: false);
+        var result = JsonSerializer.Serialize(await tools.GetPageWidgetTree("/home", includeLayoutControls: false));
 
         Assert.Contains("ContentBlock", result);
         // No layout control emitted
@@ -315,7 +315,7 @@ public sealed class PageToolsUnitTests
                 Warnings = ["Broken sibling chain detected in placeholder 'Content' — appended 2 unreached widget(s) in ORM order."],
             });
 
-        var result = await tools.GetPageWidgetTree("/home");
+        var result = JsonSerializer.Serialize(await tools.GetPageWidgetTree("/home"));
 
         Assert.Contains("Broken sibling chain", result);
     }
@@ -327,9 +327,8 @@ public sealed class PageToolsUnitTests
         mock.GetPageWidgetTreeAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
-        var result = await tools.GetPageWidgetTree("/missing");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetPageWidgetTree("/missing"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 }

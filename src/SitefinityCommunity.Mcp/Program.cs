@@ -10,6 +10,15 @@ using SitefinityCommunity.Mcp.Configuration;
 using SitefinityCommunity.Mcp.Extensions;
 using SitefinityCommunity.Mcp.Services;
 
+// CLI: install-plugin command — write the embedded Sitefinity plugin sources into a target project.
+// update-plugin is an alias: the operation is identical (idempotent copy + csproj refresh), the
+// alias just reads better when refreshing an existing install after a CLI update.
+if (args.Length > 0 && (string.Equals(args[0], "install-plugin", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(args[0], "update-plugin", StringComparison.OrdinalIgnoreCase)))
+{
+    return SitefinityCommunity.Mcp.Cli.PluginInstaller.Run(args);
+}
+
 // CLI: generate-key command — print a new API key and setup instructions, then exit
 if (args.Length > 0 && string.Equals(args[0], "generate-key", StringComparison.OrdinalIgnoreCase))
 {
@@ -72,7 +81,7 @@ builder.Services
     {
         server.ServerInfo = new Implementation
         {
-            Name = "sitefinity-mcp",
+            Name = "sitefinity-comm-mcp",
             Version = typeof(Program).Assembly
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? "0.0.0"

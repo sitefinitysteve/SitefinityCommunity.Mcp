@@ -98,6 +98,7 @@ Should return a JSON array of log files.
 | `/mcp/page-details?PageIdentifier={id}` | GET | Full page detail: metadata, template, all widgets with configured properties. Accepts Guid, URL path, slug, or title |
 | `/mcp/config` | GET | List registered configuration section names |
 | `/mcp/config/{SectionName}` | GET | Flattened, **redacted** dump of a config section. Returns **overrides only** by default (defaults pruned); optional `IncludeDefaults`, `PathFilter`, `MaxEntries` (default 500, max 5000). Keys / passwords / connection strings / `[SecretData]` values are **always** withheld (no flag reveals them, in any environment) |
+| `/mcp/settings/search` | GET | Full-text search over the backend `advanced-settings-search` Lucene index (requires `Query`; optional `Take`, default 25, max 100). Returns caption/path/section per hit, secret-redacted; reports `IndexAvailable: false` with enablement guidance when the index is disabled or missing |
 | `/mcp/where-used?Query={x}` | GET | Reverse lookup of a widget type / content item / template across pages and templates |
 | `/mcp/permissions?Identifier={x}` | GET | Effective per-role permissions on a page (or content item via `TypeFullName`) |
 | `/mcp/cache/clear` | POST | **Write** — clear cache (`Scope`=output\|whole\|page). Requires "Allow Write Operations" |

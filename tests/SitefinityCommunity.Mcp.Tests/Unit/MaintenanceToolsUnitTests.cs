@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using SitefinityCommunity.Mcp.Configuration;
 using SitefinityCommunity.Mcp.Models;
@@ -31,10 +33,10 @@ public sealed class MaintenanceToolsUnitTests
     {
         var (tools, meta, _) = CreateTools("dev", allowWrite: false);
 
-        var result = await tools.ClearCache();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ClearCache());
 
-        Assert.Contains("Refused", result);
-        Assert.Contains("allowWriteOperations", result);
+        Assert.Contains("Refused", ex.Message);
+        Assert.Contains("allowWriteOperations", ex.Message);
         await meta.DidNotReceive().ClearCacheAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
@@ -44,10 +46,10 @@ public sealed class MaintenanceToolsUnitTests
     {
         var (tools, meta, _) = CreateTools("prod", allowWrite: true);
 
-        var result = await tools.ClearCache();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ClearCache());
 
-        Assert.Contains("Refused", result);
-        Assert.Contains("prod-like", result);
+        Assert.Contains("Refused", ex.Message);
+        Assert.Contains("prod-like", ex.Message);
         await meta.DidNotReceive().ClearCacheAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
@@ -64,10 +66,10 @@ public sealed class MaintenanceToolsUnitTests
                 Message = "Cleared the whole Sitefinity cache via SystemManager.ClearWholeCache()."
             });
 
-        var result = await tools.ClearCache();
+        var result = JsonSerializer.Serialize(await tools.ClearCache());
 
         Assert.Contains("clear-cache", result);
-        Assert.Contains("\"Success\": true", result);
+        Assert.Contains("\"Success\":true", result);
         await meta.Received().ClearCacheAsync("output", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
@@ -76,9 +78,9 @@ public sealed class MaintenanceToolsUnitTests
     {
         var (tools, meta, _) = CreateTools("staging", allowWrite: false);
 
-        var result = await tools.RecycleApp();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.RecycleApp());
 
-        Assert.Contains("Refused", result);
+        Assert.Contains("Refused", ex.Message);
         await meta.DidNotReceive().RecycleApplicationAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
@@ -94,10 +96,10 @@ public sealed class MaintenanceToolsUnitTests
                 Message = "Application restart initiated."
             });
 
-        var result = await tools.RecycleApp();
+        var result = JsonSerializer.Serialize(await tools.RecycleApp());
 
         Assert.Contains("recycle", result);
-        Assert.Contains("\"Success\": true", result);
+        Assert.Contains("\"Success\":true", result);
         await meta.Received().RecycleApplicationAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 }

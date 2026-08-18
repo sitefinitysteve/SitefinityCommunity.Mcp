@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -30,7 +32,7 @@ public sealed class TaxonomyToolsUnitTests
                 ],
             });
 
-        var result = await tools.ListTaxonomies();
+        var result = JsonSerializer.Serialize(await tools.ListTaxonomies());
 
         Assert.Contains("Categories", result);
         Assert.Contains("Tags", result);
@@ -59,7 +61,7 @@ public sealed class TaxonomyToolsUnitTests
                 },
             });
 
-        var result = await tools.ListTaxonomies();
+        var result = JsonSerializer.Serialize(await tools.ListTaxonomies());
 
         Assert.Contains("cat-id", result);
         Assert.Contains("News", result);
@@ -73,9 +75,9 @@ public sealed class TaxonomyToolsUnitTests
         mock.ListTaxonomiesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Boom"));
 
-        var result = await tools.ListTaxonomies();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ListTaxonomies());
 
-        Assert.StartsWith("Error:", result);
-        Assert.Contains("Boom", result);
+        Assert.StartsWith("Error:", ex.Message);
+        Assert.Contains("Boom", ex.Message);
     }
 }

@@ -19,7 +19,7 @@ public sealed class ContentTypeTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_list_dynamic_types", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_dynamic_types", Title = "List Dynamic Types", ReadOnly = true)]
     [Description("List all Module Builder dynamic content types grouped by module. Shows the CLR type name and field count for each type.")]
     public async Task<string> ListDynamicTypes(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
@@ -62,7 +62,7 @@ public sealed class ContentTypeTools
         }
     }
 
-    [McpServerTool(Name = "sitefinity_get_module_structure", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_get_module_structure", Title = "Get Module Structure", ReadOnly = true)]
     [Description("Get the full structure of a Module Builder module: every type nested by parent/child, " +
                  "every field on every type with CLR type hints. Ideal input for generating a POCO, a widget " +
                  "view-model, or any code that needs to bind to the module's shape in one call.")]
@@ -159,7 +159,7 @@ public sealed class ContentTypeTools
         }
     }
 
-    [McpServerTool(Name = "sitefinity_get_type_fields", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_get_type_fields", Title = "Get Type Fields", ReadOnly = true)]
     [Description("Get all fields for a specific dynamic content type. Shows field name, type, required/main flags, and taxonomy/related type info. Use sitefinity_list_dynamic_types first to get the CLR type name.")]
     public async Task<string> GetTypeFields(
         [Description("Full CLR type name of the dynamic type (e.g., 'Telerik.Sitefinity.DynamicTypes.Model.PressReleases.PressRelease')")] string typeFullName,

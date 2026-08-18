@@ -62,7 +62,7 @@ public sealed class ToolOutputLimiterTests
         var limited = ToolOutputLimiter.Apply(result, maxCharacters: 1000);
 
         var text = AllText(limited);
-        Assert.Contains("Output truncated by sitefinity-mcp", text);
+        Assert.Contains("Output truncated by sitefinity-comm-mcp", text);
         Assert.Contains("SITEFINITY_MCP_MAX_TOOL_OUTPUT_CHARS", text);
 
         // Payload trimmed exactly to the budget; the notice is additive so the caller can always read why.

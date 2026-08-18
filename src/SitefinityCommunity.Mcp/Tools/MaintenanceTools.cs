@@ -1,6 +1,7 @@
 using System.ComponentModel;
-using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using SitefinityCommunity.Mcp.Models;
 using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
@@ -24,13 +25,13 @@ public sealed class MaintenanceTools
         this._resolver = resolver;
     }
 
-    [McpServerTool(Name = "sitefinity_clear_cache", ReadOnly = false, Destructive = true, Idempotent = true)]
+    [McpServerTool(Name = "sitefinity_clear_cache", Title = "Clear Cache", ReadOnly = false, Destructive = true, Idempotent = true, UseStructuredContent = true)]
     [Description("Clear Sitefinity caches — the fast way to see widget/template changes without a full recycle. " +
                  "Scope: \"output\" (HTML output cache, default), \"whole\" (entire Sitefinity cache), or \"page\" " +
                  "(output cache for a single page; requires pageIdentifier). WRITE OPERATION: refused unless the " +
                  "target environment sets allowWriteOperations:true in sitefinity-mcp.json AND the Sitefinity admin " +
                  "switch is on. Never permitted for prod-like environments.")]
-    public async Task<string> ClearCache(
+    public async Task<MaintenanceResponse> ClearCache(
         [Description("Cache scope: \"output\" (default), \"whole\", or \"page\".")]
         string scope = "output",
         [Description("When scope is \"page\", the page identifier (Guid, URL, or title) whose output cache to invalidate.")]
@@ -42,31 +43,31 @@ public sealed class MaintenanceTools
         var gate = this.CheckWriteAllowed(environment, out var envName);
         if (gate != null)
         {
-            return gate;
+            throw new McpException(gate);
         }
 
         try
         {
             var response = await this._metadataService.ClearCacheAsync(scope, pageIdentifier, environment, ct);
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed, the site is running, " +
-                   $"and 'Allow Write Operations' is enabled in Admin > Advanced > McpSettings.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed, the site is running, " +
+                   $"and 'Allow Write Operations' is enabled in Admin > Advanced > McpSettings.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 
-    [McpServerTool(Name = "sitefinity_recycle_app", ReadOnly = false, Destructive = true, Idempotent = false)]
+    [McpServerTool(Name = "sitefinity_recycle_app", Title = "Recycle Application", ReadOnly = false, Destructive = true, Idempotent = false, UseStructuredContent = true)]
     [Description("Recycle the Sitefinity application (restart the app domain / app pool) so code, config, and " +
                  "binding changes take effect. Causes a brief outage and a cold-start delay on the next request. " +
                  "WRITE OPERATION: refused unless the target environment sets allowWriteOperations:true in " +
                  "sitefinity-mcp.json AND the Sitefinity admin switch is on. Never permitted for prod-like environments.")]
-    public async Task<string> RecycleApp(
+    public async Task<MaintenanceResponse> RecycleApp(
         [Description("Target environment name (uses default if omitted)")]
         string? environment = null,
         CancellationToken ct = default)
@@ -74,22 +75,22 @@ public sealed class MaintenanceTools
         var gate = this.CheckWriteAllowed(environment, out var envName);
         if (gate != null)
         {
-            return gate;
+            throw new McpException(gate);
         }
 
         try
         {
             var response = await this._metadataService.RecycleApplicationAsync(environment, ct);
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed, the site is running, " +
-                   $"and 'Allow Write Operations' is enabled in Admin > Advanced > McpSettings.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed, the site is running, " +
+                   $"and 'Allow Write Operations' is enabled in Admin > Advanced > McpSettings.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 
@@ -122,7 +123,7 @@ public sealed class MaintenanceTools
         }
         catch (ArgumentException ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 }

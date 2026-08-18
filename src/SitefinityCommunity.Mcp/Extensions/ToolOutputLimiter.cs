@@ -39,9 +39,35 @@ public static class ToolOutputLimiter
     /// <summary>Budget-explicit overload, for tests.</summary>
     public static CallToolResult Apply(CallToolResult result, int maxCharacters)
     {
-        if (result?.Content is null || result.Content.Count == 0)
+        if (result is null)
         {
             return result!;
+        }
+
+        // Structured content is serialized into the same JSON-RPC frame as the text blocks, so it can
+        // blow the transport just as easily. It cannot be partially truncated (a sliced JSON object is
+        // useless), so an oversized one is dropped whole — the text representation, truncated below,
+        // still carries the payload.
+        if (result.StructuredContent is { } structured)
+        {
+            var structuredLength = structured.GetRawText().Length;
+
+            if (structuredLength > maxCharacters)
+            {
+                result.StructuredContent = null;
+                result.Content ??= [];
+                result.Content.Add(new TextContentBlock
+                {
+                    Text = $"\n\n[Structured content dropped by sitefinity-comm-mcp: {structuredLength:N0} characters " +
+                           $"exceeded the {maxCharacters:N0}-character limit. The text content above is the " +
+                           "same data; narrow the request to get structured output back.]"
+                });
+            }
+        }
+
+        if (result.Content is null || result.Content.Count == 0)
+        {
+            return result;
         }
 
         var total = 0;
@@ -92,7 +118,7 @@ public static class ToolOutputLimiter
 
         trimmed.Add(new TextContentBlock
         {
-            Text = $"\n\n[Output truncated by sitefinity-mcp: {total:N0} characters exceeded the " +
+            Text = $"\n\n[Output truncated by sitefinity-comm-mcp: {total:N0} characters exceeded the " +
                    $"{maxCharacters:N0}-character limit, so {total - maxCharacters:N0} were dropped. " +
                    "The text above is cut mid-stream and may not parse as JSON. " +
                    "Narrow the request — add a filter, lower a page size, or target a single item — " +

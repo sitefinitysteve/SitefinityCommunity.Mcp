@@ -591,6 +591,50 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
+    // ── Settings Search DTOs ──────────────────────────────────────────
+
+    [Route("/mcp/settings/search", "GET")]
+    public class SearchSettings : IReturn<McpSettingsSearchResponse>
+    {
+        /// <summary>Full-text query, e.g. "output cache" or "smtp host".</summary>
+        public string Query { get; set; }
+
+        /// <summary>Maximum results to return. Defaults to 25, clamped to 100.</summary>
+        public int Take { get; set; }
+    }
+
+    public class McpSettingsSearchResult
+    {
+        /// <summary>The setting's display caption, when the index provides one.</summary>
+        public string Title { get; set; }
+
+        /// <summary>Breadcrumb path to the setting within Advanced Settings.</summary>
+        public string Path { get; set; }
+
+        /// <summary>Owning config section, when the index provides one.</summary>
+        public string Section { get; set; }
+
+        /// <summary>Every indexed field on the document, secret-redacted.</summary>
+        public Dictionary<string, string> Fields { get; set; } = new Dictionary<string, string>();
+    }
+
+    public class McpSettingsSearchResponse
+    {
+        public string Query { get; set; }
+        public string IndexName { get; set; }
+        public int Take { get; set; }
+        public int ReturnedCount { get; set; }
+
+        /// <summary>False when the advanced-settings index is disabled, missing, or unresolvable.</summary>
+        public bool IndexAvailable { get; set; }
+
+        /// <summary>Which query-construction variant produced the results (diagnostic).</summary>
+        public string QueryVariant { get; set; }
+
+        public List<McpSettingsSearchResult> Results { get; set; } = new List<McpSettingsSearchResult>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
     // ── Where-Used DTOs ───────────────────────────────────────────────
 
     [Route("/mcp/where-used", "GET")]

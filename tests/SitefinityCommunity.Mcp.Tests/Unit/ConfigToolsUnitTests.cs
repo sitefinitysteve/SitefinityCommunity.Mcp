@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -26,7 +28,7 @@ public sealed class ConfigToolsUnitTests
                 Sections = ["SystemConfig", "SecurityConfig", "MultisiteConfig"]
             });
 
-        var result = await tools.ListConfigSections();
+        var result = JsonSerializer.Serialize(await tools.ListConfigSections());
 
         Assert.Contains("SystemConfig", result);
         Assert.Contains("SecurityConfig", result);
@@ -51,7 +53,7 @@ public sealed class ConfigToolsUnitTests
                 ]
             });
 
-        var result = await tools.GetConfigSection("SystemConfig");
+        var result = JsonSerializer.Serialize(await tools.GetConfigSection("SystemConfig"));
 
         Assert.Contains("SystemConfig", result);
         Assert.Contains("DisableDbConfigsLoad", result);
@@ -63,10 +65,9 @@ public sealed class ConfigToolsUnitTests
     {
         var (tools, _) = CreateTools();
 
-        var result = await tools.GetConfigSection("   ");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetConfigSection("   "));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("sectionName is required", result);
+        Assert.Contains("sectionName is required", ex.Message);
     }
 
     [Fact]
@@ -103,11 +104,46 @@ public sealed class ConfigToolsUnitTests
                 DefaultsSkipped = 371_334
             });
 
-        var result = await tools.GetConfigSection("ContentViewConfig");
+        var result = JsonSerializer.Serialize(await tools.GetConfigSection("ContentViewConfig"));
 
         Assert.Contains("4210", result);
         Assert.Contains("true", result, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("371334", result.Replace(",", string.Empty));
+    }
+
+    [Fact]
+    public async Task SearchSettings_ReturnsHitsWithPathAndSection()
+    {
+        var (tools, mock) = CreateTools();
+        mock.SearchSettingsAsync("output cache", Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new SettingsSearchResponse
+            {
+                Query = "output cache",
+                IndexAvailable = true,
+                ReturnedCount = 1,
+                Results =
+                [
+                    new SettingsSearchResult
+                    {
+                        Title = "Enable output cache",
+                        Path = "System > Output cache settings",
+                        Section = "SystemConfig"
+                    }
+                ]
+            });
+
+        var result = JsonSerializer.Serialize(await tools.SearchSettings("output cache"));
+
+        Assert.Contains("Enable output cache", result);
+        Assert.Contains("SystemConfig", result);
+    }
+
+    [Fact]
+    public async Task SearchSettings_RequiresQuery()
+    {
+        var (tools, _) = CreateTools();
+
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.SearchSettings("  "));
     }
 
     [Fact]
@@ -118,9 +154,8 @@ public sealed class ConfigToolsUnitTests
                 Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Response status code does not indicate success: 404 (Not Found)."));
 
-        var result = await tools.GetConfigSection("NopeConfig");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetConfigSection("NopeConfig"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 }

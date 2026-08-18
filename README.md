@@ -36,25 +36,33 @@ It's open source and community-driven — contributions, ideas, and feedback are
 
 There are two components to set up: the **MCP server** (runs on your dev machine) and the **Sitefinity plugin** (drops into your Sitefinity web app). Follow these steps in order.
 
-### Step 1 — Get the MCP server
-
-Clone this repo to your local machine:
+### Step 1 — Install the MCP server
 
 ```bash
-git clone https://github.com/SitefinityCommunity/SitefinityCommunity.Mcp.git
-cd SitefinityCommunity.Mcp
-dotnet build
+npm install -g sitefinity-comm-mcp
 ```
+
+That's it — no .NET required. The package downloads a self-contained binary for your platform (Windows x64, Linux x64, macOS x64/arm64) and puts `sitefinity-comm-mcp` on your PATH. Upgrade with `npm update -g sitefinity-comm-mcp`.
+
+Prefer the .NET ecosystem? `dotnet tool install -g SitefinityCommunity.Mcp` installs the same command via NuGet. Contributors can still clone and `dotnet build`.
 
 ### Step 2 — Install the plugin into your Sitefinity project
 
 The companion plugin exposes REST endpoints at `/RestApi/mcp/*` that the MCP server calls. It's distributed as source files (not a NuGet package) so it compiles against your existing Sitefinity assemblies — no DLL binding conflicts across versions.
 
-Run the install script, pointing it at your Sitefinity web app root:
+Run the installer from your Sitefinity web app root (it verifies a `web.config` is present before touching anything; re-run it (or its alias `update-plugin`) any time to refresh an existing install after a CLI update), or point at it with `--target`. It writes the plugin sources (embedded in the CLI) and registers them in your `.csproj`:
 
-```powershell
-.\install-plugin.ps1 -Target "C:\Path\To\SitefinityWebApp"
+```bash
+cd C:\Path\To\SitefinityWebApp
+sitefinity-comm-mcp install-plugin
 ```
+
+```bash
+# or, from anywhere:
+sitefinity-comm-mcp install-plugin --target "C:\Path\To\SitefinityWebApp"
+```
+
+(Working from a repo checkout instead? `.\install-plugin.ps1 -Target ...` does the same thing.)
 
 This copies the plugin source files into `Code\Mcp\SitefinityCommunity\` in your project.
 
@@ -77,7 +85,7 @@ Build your Sitefinity project and recycle the app pool.
 The MCP server and Sitefinity plugin authenticate with a shared API key. Generate a cryptographically secure one:
 
 ```bash
-dotnet run --project src/SitefinityCommunity.Mcp -- generate-key
+sitefinity-comm-mcp generate-key
 ```
 
 This prints a new 256-bit Base64 key. Copy it — you'll use it in the next two steps.
@@ -129,10 +137,9 @@ Add to your project's `.mcp.json`:
 ```json
 {
     "mcpServers": {
-        "sitefinity-mcp": {
+        "sitefinity-comm-mcp": {
             "type": "stdio",
-            "command": "dotnet",
-            "args": ["run", "--project", "C:\\GitHub\\SitefinityCommunity.Mcp\\src\\SitefinityCommunity.Mcp"],
+            "command": "sitefinity-comm-mcp",
             "env": {
                 "SITEFINITY_MCP_CONFIG": "C:\\Path\\To\\sitefinity-mcp.json"
             }
@@ -148,9 +155,8 @@ Create `.vscode/mcp.json` in your workspace (or run **MCP: Add Server** from the
 ```json
 {
     "servers": {
-        "sitefinity-mcp": {
-            "command": "dotnet",
-            "args": ["run", "--project", "C:\\GitHub\\SitefinityCommunity.Mcp\\src\\SitefinityCommunity.Mcp"],
+        "sitefinity-comm-mcp": {
+            "command": "sitefinity-comm-mcp",
             "env": {
                 "SITEFINITY_MCP_CONFIG": "C:\\Path\\To\\sitefinity-mcp.json"
             }
@@ -268,6 +274,7 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 | `sitefinity_list_form_responses` | Form submissions, newest-first, with an optional case-insensitive `searchTerm` that filters entries by any field value (or IP / UserAgent). Sensitive-named field values (password/secret/apiKey/token/...) are redacted **before** search matching so sensitive values cannot leak via search |
 | `sitefinity_list_config_sections` | List the names of all registered Sitefinity configuration sections (systemConfig, securityConfig, multisiteConfig, …) — discover a valid name before reading one |
 | `sitefinity_get_config_section` | Flattened name/value dump of a single config section — **overrides only** by default, with `pathFilter` / `maxEntries` / `includeDefaults`. Credential-like values (keys, passwords, connection strings, `[SecretData]`) are **always** redacted — in every environment, with no flag to reveal them |
+| `sitefinity_search_settings` | Full-text search across ALL Advanced Settings via the backend `advanced-settings-search` Lucene index (Sitefinity 14.1+) — find which section a setting lives in, then dump it with `sitefinity_get_config_section` |
 | `sitefinity_where_used` | Reverse "where used" lookup across every page and template — find a widget type, content item, template, or (with `kind=property`) any property-value substring. Template hits expand to the pages that ride them, so you see what actually breaks. Run before deleting or refactoring a shared resource |
 | `sitefinity_get_permissions` | Effective per-role permissions on a page or content item, deny-resolved — surfaces whether it's **public**, viewable by authenticated users, and whether it inherits from a parent, plus granted/denied actions per set |
 | `sitefinity_clear_cache` | **Write.** Clear Sitefinity caches (`output`, `whole`, or single `page`) to see widget/template changes fast. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
@@ -440,6 +447,14 @@ Integration tests skip automatically if `test-config.json` is missing or
 Sitefinity is unreachable — they won't fail your build.
 
 ---
+
+## Releasing
+
+Releases are cut by tag (see [RELEASING.md](RELEASING.md)): pushing a `vX.Y.Z` tag makes CI build the
+self-contained binaries and create the GitHub release. **The npm package is then published manually**
+(`cd npm && npm publish --access public`, authenticated interactively with 2FA) — deliberately, so no
+publish token ever lives in CI. Publish order matters: GitHub release first, npm second, because the
+npm shim's installer downloads the binaries from that release.
 
 ## Author
 

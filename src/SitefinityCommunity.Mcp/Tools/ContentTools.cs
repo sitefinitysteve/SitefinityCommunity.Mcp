@@ -1,6 +1,7 @@
 using System.ComponentModel;
-using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using SitefinityCommunity.Mcp.Models;
 using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
@@ -19,13 +20,13 @@ public sealed class ContentTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_list_content", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_content", Title = "List Content Items", ReadOnly = true, UseStructuredContent = true)]
     [Description("List live content items of a given Sitefinity type as JSON. " +
                  "Returns Id, Title, UrlName, Status, DateCreated, and LastModified for each item so widgets " +
                  "and content-driven code can reference real IDs. " +
                  "Use sitefinity_list_dynamic_types or sitefinity_list_modules to discover available type full names " +
                  "(e.g., 'Telerik.Sitefinity.News.Model.NewsItem').")]
-    public async Task<string> ListContent(
+    public async Task<ContentListResponse> ListContent(
         [Description("Full CLR type name of the content type (e.g., 'Telerik.Sitefinity.News.Model.NewsItem')")]
         string typeFullName,
         [Description("Max items to return. Default 50.")]
@@ -38,7 +39,7 @@ public sealed class ContentTools
     {
         if (string.IsNullOrWhiteSpace(typeFullName))
         {
-            return "Error: typeFullName is required.";
+            throw new McpException("Error: typeFullName is required.");
         }
 
         if (take <= 0)
@@ -59,15 +60,15 @@ public sealed class ContentTools
         try
         {
             var response = await this._metadataService.ListContentAsync(typeFullName, take, skip, environment, ct);
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 }

@@ -21,7 +21,7 @@ public sealed class SitefinityStatusTools
         this._resolver = resolver;
     }
 
-    [McpServerTool(Name = "sitefinity_check_status", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_check_status", Title = "Check Status", ReadOnly = true)]
     [Description("Check if a Sitefinity instance is bootstrapped and ready to serve requests. Polls the /RestApi/systemstatus endpoint. If the site is bootstrapping or unreachable, automatically retries every 5 seconds until ready or the timeout is reached.")]
     public async Task<string> CheckStatus(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,

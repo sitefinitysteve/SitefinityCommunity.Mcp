@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -30,11 +32,11 @@ public sealed class FormToolsUnitTests
                 ],
             });
 
-        var result = await tools.ListForms();
+        var result = JsonSerializer.Serialize(await tools.ListForms());
 
         Assert.Contains("Contact Us", result);
         Assert.Contains("Newsletter", result);
-        Assert.Contains("\"EntryCount\": 300", result);
+        Assert.Contains("\"EntryCount\":300", result);
     }
 
     [Fact]
@@ -60,7 +62,7 @@ public sealed class FormToolsUnitTests
                 ],
             });
 
-        var result = await tools.GetFormFields("Contact");
+        var result = JsonSerializer.Serialize(await tools.GetFormFields("Contact"));
 
         Assert.Contains("Your Name", result);
         Assert.Contains("DropdownListFieldController", result);
@@ -73,9 +75,9 @@ public sealed class FormToolsUnitTests
     {
         var (tools, _) = CreateTools();
 
-        var result = await tools.GetFormFields("");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetFormFields(""));
 
-        Assert.StartsWith("Error:", result);
+        Assert.StartsWith("Error:", ex.Message);
     }
 
     [Fact]
@@ -108,7 +110,7 @@ public sealed class FormToolsUnitTests
                 ],
             });
 
-        var result = await tools.ListFormResponses("Contact");
+        var result = JsonSerializer.Serialize(await tools.ListFormResponses("Contact"));
 
         Assert.Contains("Ada", result);
         Assert.Contains("[REDACTED]", result);
@@ -137,8 +139,8 @@ public sealed class FormToolsUnitTests
         mock.ListFormsAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("unreachable"));
 
-        var result = await tools.ListForms();
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ListForms());
 
-        Assert.StartsWith("Error:", result);
+        Assert.StartsWith("Error:", ex.Message);
     }
 }

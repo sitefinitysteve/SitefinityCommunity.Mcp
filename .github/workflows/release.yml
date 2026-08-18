@@ -23,6 +23,27 @@ jobs:
       - name: Build
         run: dotnet build src/SitefinityCommunity.Mcp/SitefinityCommunity.Mcp.csproj -c Release
 
+      # Self-contained single-file binaries — run without any .NET install.
+      - name: Publish self-contained binaries
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            dotnet publish src/SitefinityCommunity.Mcp/SitefinityCommunity.Mcp.csproj \
+              -c Release -r "$rid" --self-contained \
+              -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true \
+              -o "publish/$rid"
+            tar -czf "sitefinity-comm-mcp-$rid.tar.gz" -C "publish/$rid" .
+          done
+
+      # dotnet tool package: `dotnet tool install -g SitefinityCommunity.Mcp`
+      - name: Pack dotnet tool
+        run: dotnet pack src/SitefinityCommunity.Mcp/SitefinityCommunity.Mcp.csproj -c Release -o nupkg
+
+      - name: Push to NuGet
+        if: env.NUGET_API_KEY != ''
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "nupkg/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
       - name: Extract release notes from CHANGELOG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -40,3 +61,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: release-notes.md
+          files: |
+            sitefinity-comm-mcp-*.tar.gz
+            nupkg/*.nupkg
+

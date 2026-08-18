@@ -7,8 +7,25 @@
     <Nullable>enable</Nullable>
     <RootNamespace>SitefinityCommunity.Mcp</RootNamespace>
     <AssemblyName>SitefinityCommunity.Mcp</AssemblyName>
-    <Version>1.8.0</Version>
+    <Version>2.0.0</Version>
+
+    <!-- dotnet tool packaging: `dotnet tool install -g SitefinityCommunity.Mcp` puts
+         `sitefinity-mcp` on PATH — no clone, no build. -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sitefinity-comm-mcp</ToolCommandName>
+    <PackageId>SitefinityCommunity.Mcp</PackageId>
+    <Description>MCP server for Sitefinity CMS — logs, diagnostics, config, pages, forms, and status for Claude Code and other MCP clients.</Description>
+    <Authors>Steve Scott</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sitefinitysteve/SitefinityCommunity.Mcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sitefinitysteve/SitefinityCommunity.Mcp</RepositoryUrl>
+    <PackageTags>sitefinity;mcp;model-context-protocol;claude;ai</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
@@ -18,6 +35,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Docs\WidgetDesignerAttributes.md" />
+    <!-- The Sitefinity plugin sources ride inside the exe so `sitefinity-mcp install-plugin`
+         can write them into any Sitefinity project without a repo checkout. -->
+    <EmbeddedResource Include="..\SitefinityCommunity.Mcp.SitefinityPlugin\*.cs" LinkBase="PluginSource" />
   </ItemGroup>
 
 </Project>

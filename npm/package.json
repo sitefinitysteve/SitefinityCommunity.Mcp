@@ -1,0 +1,23 @@
+{
+    "name": "sitefinity-comm-mcp",
+    "version": "2.0.0",
+    "description": "MCP server for Sitefinity CMS — logs, diagnostics, config, pages, forms, and status for Claude Code and other MCP clients.",
+    "keywords": ["sitefinity", "mcp", "model-context-protocol", "claude", "ai"],
+    "license": "MIT",
+    "author": "Steve Scott",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sitefinitysteve/SitefinityCommunity.Mcp.git"
+    },
+    "homepage": "https://github.com/sitefinitysteve/SitefinityCommunity.Mcp#readme",
+    "bin": {
+        "sitefinity-comm-mcp": "bin.js"
+    },
+    "files": ["bin.js", "install.js", "README.md"],
+    "scripts": {
+        "postinstall": "node install.js"
+    },
+    "engines": {
+        "node": ">=18"
+    }
+}

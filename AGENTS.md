@@ -194,12 +194,12 @@ public sealed class MyNewTools
 ### Conventions
 
 - Tool names: `sitefinity_` prefix, snake_case (e.g. `sitefinity_read_error_log`)
-- Return type: `string` or `Task<string>` — plain text, not JSON
+- Return type: a typed response model (`Task<MyResponse>`) with `UseStructuredContent = true` when the tool returns data — the SDK publishes an output schema and structured content automatically. Use `Task<string>` only for human-formatted text output (logs, status summaries, markdown tables)
 - Include `string? environment = null` parameter on tools that target a specific environment
 - Include `CancellationToken ct = default` for async operations
 - Use `[Description]` on the class method AND on parameters — Codex uses these descriptions
 - Set `ReadOnly = true` for tools that don't modify state
-- Wrap external calls in try/catch and return error messages as strings (don't let exceptions propagate)
+- Wrap external calls in try/catch and rethrow as `McpException` with a clear message — the SDK returns it as an isError result. Typed tools cannot return error strings
 
 ### Step 2: If your tool needs a new service
 
@@ -371,6 +371,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/forms/{FormIdentifier}/responses` | GET | Paged form submissions (secret-redacted). Optional `SearchTerm` filters to entries where any field value (or IP / UserAgent) contains the term (case-insensitive; matching runs **after** redaction so sensitive values cannot leak via search). Response includes `TotalCount` (all entries), `MatchedCount` (after filter), and echoes `SearchTerm` |
 | `/mcp/config` | GET | List all registered configuration section names (discovered by scanning `ConfigSection`-derived types in the AppDomain) |
 | `/mcp/config/{SectionName}` | GET | Flattened dump of a config section. Returns **overrides only** by default — Sitefinity materializes a fully defaults-merged graph, so an unbounded `ContentViewConfig` is ~79 MB / 375k entries. Defaults are pruned via `ConfigElement.Source` and `ConfigProperty.DefaultValue`/`SkipOnExport`. Optional `IncludeDefaults`, `PathFilter` (case-insensitive substring), `MaxEntries` (default 500, max 5000). Response carries `TotalCount`, `ReturnedCount`, `Truncated`, `DefaultsSkipped`. Credential-like values (keys, passwords, connection strings, tokens, `ConfigProperty.IsSecret`, `[SecretData]`/encrypted properties) are **ALWAYS redacted** and never returned — in every environment, with no flag to reveal them |
+| `/mcp/settings/search` | GET | Full-text search over the backend `advanced-settings-search` Lucene index (requires `Query`; optional `Take`, default 25, max 100). Returns caption/path/section per hit, secret-redacted; reports `IndexAvailable: false` with enablement guidance when the index is disabled or missing |
 | `/mcp/where-used` | GET | Reverse lookup: every page/template referencing a widget type, content item, or template (requires `Query`; optional `Kind`=widget\|content\|template) |
 | `/mcp/permissions` | GET | Effective per-role granted/denied actions on a page or content item, and whether it inherits (requires `Identifier`; optional `TypeFullName` for a content item) |
 | `/mcp/cache/clear` | POST | **Write.** Clear cache: `Scope`=output\|whole\|page (`PageIdentifier` required for page). Refused (403) unless `AllowWriteOperations` is enabled in admin |

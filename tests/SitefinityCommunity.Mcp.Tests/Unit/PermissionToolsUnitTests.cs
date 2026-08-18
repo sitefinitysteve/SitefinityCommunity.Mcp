@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -50,14 +52,14 @@ public sealed class PermissionToolsUnitTests
                 ]
             });
 
-        var result = await tools.GetPermissions("/about");
+        var result = JsonSerializer.Serialize(await tools.GetPermissions("/about"));
 
         Assert.Contains("About", result);
         Assert.Contains("Administrators", result);
         Assert.Contains("Everyone", result);
         Assert.Contains("Modify", result);
         Assert.Contains("EffectiveActions", result);
-        Assert.Contains("\"IsPublic\": false", result);
+        Assert.Contains("\"IsPublic\":false", result);
     }
 
     [Fact]
@@ -68,8 +70,8 @@ public sealed class PermissionToolsUnitTests
                 "Telerik.Sitefinity.News.Model.NewsItem", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new PermissionsResponse { TargetKind = "content", TargetTitle = "Press Release" });
 
-        var result = await tools.GetPermissions(
-            "aaaa1111-2222-3333-4444-555555555555", "Telerik.Sitefinity.News.Model.NewsItem");
+        var result = JsonSerializer.Serialize(await tools.GetPermissions(
+            "aaaa1111-2222-3333-4444-555555555555", "Telerik.Sitefinity.News.Model.NewsItem"));
 
         Assert.Contains("content", result);
         Assert.Contains("Press Release", result);
@@ -83,10 +85,9 @@ public sealed class PermissionToolsUnitTests
     {
         var (tools, _) = CreateTools();
 
-        var result = await tools.GetPermissions("");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetPermissions(""));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("identifier is required", result);
+        Assert.Contains("identifier is required", ex.Message);
     }
 
     [Fact]
@@ -96,9 +97,8 @@ public sealed class PermissionToolsUnitTests
         mock.GetPermissionsAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("boom"));
 
-        var result = await tools.GetPermissions("/about");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.GetPermissions("/about"));
 
-        Assert.Contains("Error:", result);
-        Assert.Contains("Ensure the Sitefinity plugin is installed", result);
+        Assert.Contains("Ensure the Sitefinity plugin is installed", ex.Message);
     }
 }

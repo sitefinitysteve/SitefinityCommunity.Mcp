@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SitefinityCommunity.Mcp.Models;
@@ -36,12 +38,12 @@ public sealed class ContentToolsUnitTests
                 ],
             });
 
-        var result = await tools.ListContent("Telerik.Sitefinity.News.Model.NewsItem");
+        var result = JsonSerializer.Serialize(await tools.ListContent("Telerik.Sitefinity.News.Model.NewsItem"));
 
         Assert.Contains("Hello", result);
         Assert.Contains("World", result);
         Assert.Contains("NewsItem", result);
-        Assert.Contains("\"TotalCount\": 2", result);
+        Assert.Contains("\"TotalCount\":2", result);
     }
 
     [Fact]
@@ -57,10 +59,10 @@ public sealed class ContentToolsUnitTests
                 TotalCount = 0,
             });
 
-        var result = await tools.ListContent("Some.Type");
+        var result = JsonSerializer.Serialize(await tools.ListContent("Some.Type"));
 
-        Assert.Contains("\"TotalCount\": 0", result);
-        Assert.Contains("\"Items\": []", result);
+        Assert.Contains("\"TotalCount\":0", result);
+        Assert.Contains("\"Items\":[]", result);
     }
 
     [Fact]
@@ -72,10 +74,10 @@ public sealed class ContentToolsUnitTests
                 Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Connection refused"));
 
-        var result = await tools.ListContent("Some.Type");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ListContent("Some.Type"));
 
-        Assert.StartsWith("Error:", result);
-        Assert.Contains("Connection refused", result);
+        Assert.StartsWith("Error:", ex.Message);
+        Assert.Contains("Connection refused", ex.Message);
     }
 
     [Fact]
@@ -98,9 +100,9 @@ public sealed class ContentToolsUnitTests
     {
         var (tools, _) = CreateTools();
 
-        var result = await tools.ListContent("");
+        var ex = await Assert.ThrowsAsync<McpException>(() => tools.ListContent(""));
 
-        Assert.StartsWith("Error:", result);
-        Assert.Contains("typeFullName", result);
+        Assert.StartsWith("Error:", ex.Message);
+        Assert.Contains("typeFullName", ex.Message);
     }
 }

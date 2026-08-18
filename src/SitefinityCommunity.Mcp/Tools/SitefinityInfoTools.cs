@@ -21,7 +21,7 @@ public sealed class SitefinityInfoTools
         this._resolver = resolver;
     }
 
-    [McpServerTool(Name = "sitefinity_get_site_info", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_get_site_info", Title = "Get Site Info", ReadOnly = true)]
     [Description("Get Sitefinity instance metadata — version, .NET version, project name, configured languages, module count, and multisite info.")]
     public async Task<string> GetSiteInfo(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
@@ -68,7 +68,7 @@ public sealed class SitefinityInfoTools
         }
     }
 
-    [McpServerTool(Name = "sitefinity_list_modules", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_modules", Title = "List Modules", ReadOnly = true)]
     [Description("List all installed Sitefinity modules with their type (System/Dynamic/Custom), status (Active/Inactive), and startup type.")]
     public async Task<string> ListModules(
         [Description("Target environment name (uses default if omitted)")] string? environment = null,

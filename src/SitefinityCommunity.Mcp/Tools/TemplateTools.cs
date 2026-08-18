@@ -1,6 +1,7 @@
 using System.ComponentModel;
-using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using SitefinityCommunity.Mcp.Models;
 using SitefinityCommunity.Mcp.Services;
 
 namespace SitefinityCommunity.Mcp.Tools;
@@ -19,10 +20,10 @@ public sealed class TemplateTools
         this._metadataService = metadataService;
     }
 
-    [McpServerTool(Name = "sitefinity_list_templates", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_templates", Title = "List Templates", ReadOnly = true, UseStructuredContent = true)]
     [Description("List all available page templates (Id, Name, Title, Framework MVC/WebForms, ParentTemplateId, Culture). " +
                  "Use this to discover template IDs when generating widgets or pages against real templates.")]
-    public async Task<string> ListTemplates(
+    public async Task<TemplatesResponse> ListTemplates(
         [Description("Target environment name (uses default if omitted)")]
         string? environment = null,
         CancellationToken ct = default)
@@ -30,15 +31,15 @@ public sealed class TemplateTools
         try
         {
             var response = await this._metadataService.ListTemplatesAsync(environment, ct);
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            return response;
         }
         catch (HttpRequestException ex)
         {
-            return $"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.";
+            throw new McpException($"Error: {ex.Message}. Ensure the Sitefinity plugin is installed and the site is running.");
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            throw new McpException($"Error: {ex.Message}");
         }
     }
 }

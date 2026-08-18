@@ -20,7 +20,7 @@ public sealed class EnvironmentTools
         this._resolver = resolver;
     }
 
-    [McpServerTool(Name = "sitefinity_list_environments", ReadOnly = true)]
+    [McpServerTool(Name = "sitefinity_list_environments", Title = "List Environments", ReadOnly = true)]
     [Description("Show all configured Sitefinity environments, which is the current default, and whether each uses local or remote log access.")]
     public string ListEnvironments()
     {
@@ -46,7 +46,7 @@ public sealed class EnvironmentTools
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "sitefinity_set_default_environment")]
+    [McpServerTool(Name = "sitefinity_set_default_environment", Title = "Set Default Environment")]
     [Description("Switch the active default environment. All subsequent tool calls without an explicit environment parameter will target this environment.")]
     public string SetDefaultEnvironment(
         [Description("The environment name to set as default (e.g., 'dev', 'staging', 'prod')")] string environment)
