@@ -43,7 +43,13 @@ sitefinity-comm-mcp generate-key
 }
 ```
 
-**4. Register the server** with your MCP client — e.g. Claude Code (`.mcp.json`):
+**4. Register the server** with your MCP client. Claude Code one-liner (run in your project):
+
+```bash
+claude mcp add sitefinity-comm-mcp --env SITEFINITY_MCP_CONFIG="C:\Path\To\sitefinity-mcp.json" -- sitefinity-comm-mcp
+```
+
+Or by hand in `.mcp.json`:
 
 ```json
 {

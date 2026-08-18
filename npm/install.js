@@ -67,8 +67,10 @@ download(url, archive, 0, (err) => {
 
     try {
         fs.mkdirSync(destDir, { recursive: true });
-        // tar ships with Windows 10+, macOS, and every mainstream Linux.
-        execFileSync("tar", ["-xzf", archive, "-C", destDir], { stdio: "inherit" });
+        // tar ships with Windows 10+, macOS, and every mainstream Linux. Run it with RELATIVE
+        // paths from this package's directory: GNU tar (e.g. Git for Windows' tar.exe, which can
+        // shadow the system one on PATH) parses "C:\..." as a remote rsh host and dies.
+        execFileSync("tar", ["-xzf", path.basename(archive), "-C", "dist"], { cwd: __dirname, stdio: "inherit" });
         fs.unlinkSync(archive);
 
         const exe = path.join(destDir, process.platform === "win32" ? "SitefinityCommunity.Mcp.exe" : "SitefinityCommunity.Mcp");

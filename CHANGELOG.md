@@ -2,6 +2,16 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] — 2026-08-18
+
+### Fixed
+
+- **npm install failed when Git for Windows' GNU tar shadowed the system tar.** The installer extracted with absolute Windows paths, which GNU tar parses as a remote rsh host (`C:` → host `C`). Extraction now runs with relative paths from the package directory, which every tar accepts.
+
+### Added
+
+- npm README: `claude mcp add` one-liner for registering the server with Claude Code.
+
 ## [2.0.1] — 2026-08-18
 
 ### Fixed
