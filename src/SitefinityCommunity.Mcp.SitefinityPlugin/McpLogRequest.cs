@@ -542,7 +542,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
         /// <summary>
         /// Case-insensitive substring; only entries whose path contains it are returned. The walk still
-        /// visits the whole section, so <see cref="TotalCount"/> stays honest.
+        /// visits the whole section, so <see cref="McpConfigSectionResponse.TotalCount"/> stays honest.
         /// </summary>
         public string PathFilter { get; set; }
 

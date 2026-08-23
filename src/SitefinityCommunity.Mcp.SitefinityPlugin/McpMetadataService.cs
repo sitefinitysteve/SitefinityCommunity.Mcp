@@ -1529,7 +1529,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         }
 
         /// <summary>
-        /// Matches a node by its full URL (the expensive pass — <see cref="PageNode.GetFullUrl()"/>
+        /// Matches a node by its full URL (the expensive pass — <c>PageNode.GetFullUrl()</c>
         /// walks the parent chain per node). Returns the first node whose normalized full URL equals
         /// the normalized identifier, or null.
         /// </summary>
