@@ -387,6 +387,10 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 - **No manual JSON serialization** — Use `System.Text.Json` with source generators where applicable
 - **Target framework** — .NET 10 (`net10.0`)
 - **MCP SDK** — `ModelContextProtocol` v2.2.0 (stable)
+- **XML doc comments must be warning-free** — Plugin `.cs` files are compiled *inside* customer Sitefinity solutions, which usually have `GenerateDocumentationFile` on. Anything sloppy in a `///` comment becomes a CS1570/CS1574 warning in **their** build, not ours (this repo's projects don't emit doc XML, so the warnings are invisible here). Rules:
+  - **Escape `&` as `&amp;`** in doc text — query-string examples like `?A=1&B=2` are the usual culprit (CS1570 "reference to undefined entity"). Same for literal `<` / `>` (`&lt;` / `&gt;`).
+  - **Only `cref` things the file can actually resolve** — a member on another type needs the qualifier (`<see cref="McpConfigSectionResponse.TotalCount"/>`, not `<see cref="TotalCount"/>`), and **extension methods never resolve through the extended type** — write `<c>PageNode.GetFullUrl()</c>`, not `<see cref="PageNode.GetFullUrl()"/>` (CS1574).
+  - When in doubt, use `<c>…</c>` — it's plain text and can't break a consumer's build.
 
 ## Testing Locally
 

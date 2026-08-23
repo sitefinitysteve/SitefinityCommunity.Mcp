@@ -2,6 +2,12 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.4] — 2026-08-22
+
+### Fixed
+
+- **Plugin sources emitted XML doc comment warnings (CS1570/CS1574) in host Sitefinity solutions.** The plugin `.cs` files compile inside the customer's project, which usually has `GenerateDocumentationFile` enabled, so malformed doc XML surfaced as warnings in their build. Escaped a raw `&` in a query-string example, qualified a `cref` pointing at a member of another type, and replaced two `cref`s to the `PageNode.GetFullUrl()` extension method (which never resolves through the extended type) with plain `<c>` markup.
+
 ## [2.0.3] — 2026-08-18
 
 ### Fixed

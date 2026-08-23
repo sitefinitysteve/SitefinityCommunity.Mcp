@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>SitefinityCommunity.Mcp</RootNamespace>
     <AssemblyName>SitefinityCommunity.Mcp</AssemblyName>
-    <Version>2.0.3</Version>
+    <Version>2.0.4</Version>
 
     <!-- dotnet tool packaging: `dotnet tool install -g SitefinityCommunity.Mcp` puts
          `sitefinity-mcp` on PATH — no clone, no build. -->
