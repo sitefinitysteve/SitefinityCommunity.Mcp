@@ -31,7 +31,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         private const int MaxTake = 500;
 
         /// <summary>
-        /// GET /RestApi/mcp/content?TypeFullName=...&Take=...&Skip=...
+        /// GET /RestApi/mcp/content?TypeFullName=...&amp;Take=...&amp;Skip=...
         /// </summary>
         public McpContentListResponse Get(ListContent request)
         {

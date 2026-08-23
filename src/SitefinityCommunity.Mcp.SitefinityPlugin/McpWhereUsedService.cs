@@ -735,7 +735,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// <summary>
         /// Rebuilds a page node's site URL by walking the parent chain in memory over the pre-loaded node
         /// index. The scalar UrlName/ParentId/RootNodeId are already materialized, so this issues NO
-        /// database queries — unlike <see cref="PageNode.GetFullUrl()"/>, which lazy-loads each ancestor
+        /// database queries — unlike <c>PageNode.GetFullUrl()</c>, which lazy-loads each ancestor
         /// and dominated the scan time. Cycle-guarded; stops at (and excludes) the site root.
         /// </summary>
         private static string BuildUrl(PageNode node, Dictionary<Guid, PageNode> nodesById)
