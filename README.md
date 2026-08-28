@@ -250,12 +250,9 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 
 | Tool | Description |
 |------|-------------|
-| `sitefinity_read_error_log` | Last N entries from Error.log |
-| `sitefinity_read_trace_log` | Last N entries from Trace.log |
-| `sitefinity_list_log_files` | All .log files with size and modified date |
-| `sitefinity_read_log_file` | Read any log file by name |
+| `sitefinity_read_log_file` | The newest parsed entries from a log file — `fileName` defaults to `Error.log`, so no arguments gives the last 10 errors with stack traces; `count: 1` gives just the most recent. `Trace.log` and any name from `sitefinity_list_log_files` also work |
 | `sitefinity_search_logs` | Regex search across all logs with context |
-| `sitefinity_get_last_error` | Most recent error with full details |
+| `sitefinity_list_log_files` | All .log files with size and modified date |
 | `sitefinity_check_status` | Check if Sitefinity is bootstrapped |
 | `sitefinity_get_site_info` | Sitefinity version, .NET version, project name, languages, multisite info |
 | `sitefinity_list_modules` | All installed modules with type, status, startup type |
@@ -279,6 +276,7 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 | `sitefinity_get_permissions` | Effective per-role permissions on a page or content item, deny-resolved — surfaces whether it's **public**, viewable by authenticated users, and whether it inherits from a parent, plus granted/denied actions per set |
 | `sitefinity_clear_cache` | **Write.** Clear Sitefinity caches (`output`, `whole`, or single `page`) to see widget/template changes fast. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
 | `sitefinity_recycle_app` | **Write.** Recycle the Sitefinity application so code/config/binding changes take effect. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
+| `sitefinity_investigate_incident` | **The outage tool.** Correlates Sitefinity logs + IIS W3C access logs + Windows Application/System event logs + http.sys HTTPERR across one time window, with every timestamp in both UTC and server-local. Three modes: **discovery** (no args — find candidate crash moments over the last N hours), **window** (`time` — full reconstruction of that moment), **search** (`query` — sweep every source for a substring, e.g. one user's request trail) |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -325,6 +323,33 @@ By default this returns **overrides only** — the values someone actually chang
 **`sitefinity_where_used`** — Sitefinity has no built-in "where used" view. Pass a Guid (content item or template id), a widget/controller type name (e.g. `ContentBlock`, `MvcControllerProxy`), or — with `kind=property` — any substring to match inside widget property values (a CSS class, URL, or snippet). It scans every page **and** template, and because a widget that lives on a template renders on every page riding that template, template-hosted matches are expanded into the affected pages (transitively through template inheritance) — so the result shows what actually breaks if you change it. Each hit reports the host page/template, the matching widget (origin, placeholder, and the matched property/snippet), why it matched, and which template an inherited hit came from. The kind is auto-detected; override it with `kind` when needed. Use it before deleting or refactoring a shared resource.
 
 **`sitefinity_get_permissions`** — Resolves the effective permissions on a page or content item, decoding the runtime grant/deny bitmasks into real access (deny wins over grant) per role. Answers the headline questions directly: **is it public** (the Everyone role can View), is it viewable by any authenticated user, does it **inherit** permissions and from which parent, and what each role can actually do (View, Modify, Delete, Create, ChangePermissions, …) across each permission set. Pass a page identifier (Guid, URL, or title), or a content item Guid plus its `typeFullName`.
+
+### Incident Investigation
+
+**`sitefinity_investigate_incident`** answers "the site went down around 11:00 — what happened?" in one call. Sitefinity's own log only ever tells part of the story: when the app pool itself dies, the interesting evidence lives in the Windows **System** event log (WAS 5009/5010/5011/5117) and in **HTTPERR**, where http.sys records the 503s that never reached the site at all. This tool reads all four sources together:
+
+| Source | What it contributes | Clock |
+|--------|--------------------|-------|
+| Sitefinity logs | Parsed Error/Trace entries in the window, errors first | server-local |
+| IIS W3C access log | Per-minute request counts, status histogram (with sub-status, `503.2` vs `500.0`), every 5xx, the slowest requests | **always UTC** |
+| Windows Event Log (Application + System) | App-pool crashes, `Application Error` 1000, `.NET Runtime` 1026. Security is never read | UTC |
+| HTTPERR (`C:\Windows\System32\LogFiles\HTTPERR`) | http.sys 503s by reason — `AppOffline`, `QueueFull`, `Timer_ConnectionIdle` — the requests that never reached the site log | **always UTC** |
+
+Because those clocks disagree, **every entry carries both `TimestampUtc` and `TimestampLocal`**, and the response reports `ServerTimeZoneId` plus the UTC offset that applied *at the queried instant* (not "now", which would be wrong across a DST boundary).
+
+Three modes, picked by which arguments you pass:
+
+1. **Discovery** — no `time`, no `query`. "The site crashed sometime this week, when?" Scans the cheap high-signal sources over `lookbackHours` (default 72, max 336) and returns clustered candidate moments, newest first, each with a headline signal like `WAS 5011 worker process crash` or `HTTPERR 503 burst (AppOffline x142)`. Signals within 10 minutes fold into one candidate. It deliberately does **not** scan the IIS access log — sweeping it over multiple days is far too expensive.
+2. **Window** — pass `time` (`"11:00"`, `"2026-08-27 11:00"`, or full ISO 8601; read as **server-local** unless it carries an explicit offset or `Z`). Returns the full correlated reconstruction of `time ± windowMinutes` (default 15, max 120).
+3. **Search** — pass `query` without a `time`. Sweeps every source over `lookbackHours` for a case-insensitive plain substring — one user's full request trail (`query: "steve@medportal.ca"`), an order id, a URL path. The IIS log *is* scanned here; the line ceiling and time budget bound it.
+
+Passing `time` **and** `query` filters that window to matching entries. For IIS in that mode you get the matching requests at **all** status codes (not just 5xx — the whole request trail is the point), while the aggregates still cover the unfiltered window so traffic context survives.
+
+**Guardrails.** Raw IIS log lines are never returned — only aggregates plus capped lists (20 Sitefinity entries, 25 per event-log channel, 25 5xx, 10 slowest, 25 HTTPERR, 50 matched requests, 20 candidates), each reporting its true total and a `Truncated` flag. Scanning stops at 2,000,000 lines or a 30-second wall-clock budget, whichever comes first, and says so in `Warnings` rather than hanging. The endpoint is plain synchronous request/response — no background jobs.
+
+**Privacy stance.** Query strings are parsed and redacted per parameter (deny-listed names lose their values, then the whole string is pattern-scanned), and the `cs(Cookie)` / `cs(Authorization)` columns are **never read at all** — a redacted credential is still a credential-shaped string in an LLM context. Client IPs and `cs-username` **are** returned deliberately: correlating an outage to who was hitting what is the entire purpose. Query matching runs **after** redaction, so `query` can never be used as an oracle to confirm a value the redactor removed.
+
+**Prerequisites.** Reading the Windows event logs requires the app pool identity to be in the local **Event Log Readers** group; the IIS and HTTPERR folders need read access for that identity. When any of those is missing the response carries a warning with the exact `icacls` / group-membership fix instead of failing. The IIS log folder is auto-detected as `%SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId}`; override it with **IIS Log Path** in Sitefinity Admin > Advanced > McpSettings.
 
 ### Maintenance (Write Operations)
 

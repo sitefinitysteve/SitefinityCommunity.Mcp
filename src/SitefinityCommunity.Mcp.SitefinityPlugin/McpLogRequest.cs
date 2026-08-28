@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // SitefinityCommunity.Mcp - Sitefinity Plugin
 // Drop this file into your Sitefinity web app project.
 // ============================================================================
@@ -831,5 +831,488 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public bool Success { get; set; }
         public string Message { get; set; }
         public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // ── Incident Window (system log correlation) DTOs ──────────────────
+
+    [Route("/mcp/incident-window", "GET")]
+    public class GetIncidentWindow : IReturn<McpIncidentResponse>
+    {
+        /// <summary>
+        /// The moment to centre the window on. Parsed as SERVER-LOCAL time unless the string carries an
+        /// explicit offset or a trailing Z. Accepts "11:00", "2026-08-27 11:00", or a full ISO 8601 value.
+        /// <para>
+        /// When this is EMPTY the endpoint switches to discovery mode and returns candidate incident
+        /// moments over the last <c>LookbackHours</c> instead of a correlated window.
+        /// </para>
+        /// </summary>
+        public string Center { get; set; }
+
+        /// <summary>Half-width of the window in minutes (the window is Center +/- this). Default 15, clamped 1-120.</summary>
+        public int WindowMinutes { get; set; }
+
+        /// <summary>
+        /// Discovery mode only (Center empty): how far back to hunt for candidate incident moments.
+        /// Default 72, clamped 1-336.
+        /// </summary>
+        public int LookbackHours { get; set; }
+
+        /// <summary>
+        /// Optional case-insensitive plain substring (NOT a regex) matched against entries in every
+        /// scanned source. With a Center it filters the window; without one it switches the endpoint to
+        /// search mode over <c>LookbackHours</c>.
+        /// <para>
+        /// Matching runs AFTER redaction, so a query can never be used as an oracle to probe for a
+        /// redacted secret value.
+        /// </para>
+        /// </summary>
+        public string Query { get; set; }
+
+        /// <summary>
+        /// Comma-separated list of sources to collect: <c>sitefinity</c>, <c>iis</c>, <c>eventlog</c>,
+        /// <c>httperr</c>. Empty means all four. Ignored in discovery mode, which always scans only the
+        /// cheap high-signal sources.
+        /// </summary>
+        public string Sources { get; set; }
+    }
+
+    /// <summary>
+    /// Envelope for the two shapes the incident endpoint can return. Exactly one of
+    /// <c>Window</c> / <c>Candidates</c> is populated, per <c>Mode</c>.
+    /// </summary>
+    public class McpIncidentResponse
+    {
+        /// <summary>
+        /// "window" when a Center was supplied, "search" when only a Query was, "candidates" when
+        /// neither was (discovery).
+        /// </summary>
+        public string Mode { get; set; }
+
+        /// <summary>Populated when Mode is "window".</summary>
+        public McpIncidentWindowResponse Window { get; set; }
+
+        /// <summary>Populated when Mode is "candidates".</summary>
+        public McpIncidentCandidatesResponse Candidates { get; set; }
+
+        /// <summary>Populated when Mode is "search".</summary>
+        public McpIncidentSearchResponse Search { get; set; }
+
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Search-mode result: every source swept over the lookback period for a plain substring. Uses the
+    /// same section shapes as window mode, so an agent can read one set of fields either way.
+    /// </summary>
+    public class McpIncidentSearchResponse
+    {
+        /// <summary>Echo of the substring that was matched (case-insensitively, after redaction).</summary>
+        public string Query { get; set; }
+
+        public string ServerTimeZoneId { get; set; }
+        public int ServerUtcOffsetMinutes { get; set; }
+
+        public int LookbackHours { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:00:00Z</c>.</summary>
+        public string LookbackStartUtc { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:00:00Z</c>.</summary>
+        public string LookbackEndUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:00:00</c>.</summary>
+        public string LookbackStartLocal { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:00:00</c>.</summary>
+        public string LookbackEndLocal { get; set; }
+
+        public List<string> ScannedSources { get; set; } = new List<string>();
+
+        public McpIncidentSitefinitySection Sitefinity { get; set; }
+        public McpIncidentIisSection Iis { get; set; }
+        public McpIncidentEventLogSection EventLog { get; set; }
+        public McpIncidentHttpErrSection HttpErr { get; set; }
+
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Discovery-mode result: candidate incident moments found over the lookback period, newest first.
+    /// Feed one of these timestamps back as <c>Center</c> to reconstruct the full correlated window.
+    /// </summary>
+    public class McpIncidentCandidatesResponse
+    {
+        public string ServerTimeZoneId { get; set; }
+        public int ServerUtcOffsetMinutes { get; set; }
+
+        public int LookbackHours { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:00:00Z</c>.</summary>
+        public string LookbackStartUtc { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:00:00Z</c>.</summary>
+        public string LookbackEndUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:00:00</c>.</summary>
+        public string LookbackStartLocal { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:00:00</c>.</summary>
+        public string LookbackEndLocal { get; set; }
+
+        /// <summary>Which cheap sources were actually scanned.</summary>
+        public List<string> ScannedSources { get; set; } = new List<string>();
+
+        /// <summary>Individual signals found before clustering.</summary>
+        public int TotalSignals { get; set; }
+
+        /// <summary>Clusters found before the cap.</summary>
+        public int TotalCandidates { get; set; }
+        public int ReturnedCount { get; set; }
+        public bool Truncated { get; set; }
+
+        public List<McpIncidentCandidate> Candidates { get; set; } = new List<McpIncidentCandidate>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>One clustered candidate incident moment.</summary>
+    public class McpIncidentCandidate
+    {
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:01:00Z</c>. Feed this back as <c>Center</c>.</summary>
+        public string TimestampUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:01:00</c>.</summary>
+        public string TimestampLocal { get; set; }
+
+        /// <summary>Headline signal, e.g. "WAS 5011 worker process crash".</summary>
+        public string Signal { get; set; }
+
+        /// <summary>"eventlog", "httperr", or "sitefinity".</summary>
+        public string Source { get; set; }
+
+        /// <summary>Everything else that clustered with the headline, summarised.</summary>
+        public string Detail { get; set; }
+
+        /// <summary>Total signals that merged into this candidate.</summary>
+        public int SignalCount { get; set; }
+    }
+
+    /// <summary>
+    /// Correlated view of everything four log sources recorded inside one time window. Every entry
+    /// carries both a UTC and a server-local timestamp so clocks can never be misaligned by the caller.
+    /// </summary>
+    public class McpIncidentWindowResponse
+    {
+        /// <summary>The server's time zone id, e.g. "Eastern Standard Time".</summary>
+        public string ServerTimeZoneId { get; set; }
+
+        /// <summary>
+        /// The server's UTC offset in minutes, evaluated AT the queried instant (so a window inside a
+        /// different DST period than "now" still reports the offset that actually applied).
+        /// </summary>
+        public int ServerUtcOffsetMinutes { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:00:00Z</c>.</summary>
+        public string CenterUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:00:00</c>.</summary>
+        public string CenterLocal { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T14:45:00Z</c>.</summary>
+        public string WindowStartUtc { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:15:00Z</c>.</summary>
+        public string WindowEndUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T10:45:00</c>.</summary>
+        public string WindowStartLocal { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:15:00</c>.</summary>
+        public string WindowEndLocal { get; set; }
+
+        public int WindowMinutes { get; set; }
+
+        /// <summary>Echo of the sources that were actually collected.</summary>
+        public List<string> RequestedSources { get; set; } = new List<string>();
+
+        /// <summary>Echo of the substring filter that was applied to entries, if any.</summary>
+        public string Query { get; set; }
+
+        public McpIncidentSitefinitySection Sitefinity { get; set; }
+        public McpIncidentIisSection Iis { get; set; }
+        public McpIncidentEventLogSection EventLog { get; set; }
+        public McpIncidentHttpErrSection HttpErr { get; set; }
+
+        /// <summary>Top-level problems (bad input, a source that could not be reached at all).</summary>
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>Sitefinity's own Error/Trace logs, filtered to the window.</summary>
+    public class McpIncidentSitefinitySection
+    {
+        public bool Available { get; set; }
+        public string LogsPath { get; set; }
+        public List<string> FilesScanned { get; set; } = new List<string>();
+
+        /// <summary>
+        /// How the timestamps in the raw log were interpreted. Sitefinity writes server-local time by
+        /// default; a site configured to log UTC would shift these by the server offset.
+        /// </summary>
+        public string TimestampInterpretation { get; set; }
+
+        /// <summary>Entries whose timestamp fell inside the window, before any query filter or cap.</summary>
+        public int TotalMatched { get; set; }
+
+        /// <summary>
+        /// Entries that also contained the Query substring. Equals <c>TotalMatched</c> when no query was
+        /// supplied. Matching runs after redaction.
+        /// </summary>
+        public int MatchedCount { get; set; }
+
+        public int ReturnedCount { get; set; }
+        public bool Truncated { get; set; }
+
+        public List<McpIncidentLogEntry> Entries { get; set; } = new List<McpIncidentLogEntry>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpIncidentLogEntry
+    {
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:01:12Z</c>.</summary>
+        public string TimestampUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:01:12</c>.</summary>
+        public string TimestampLocal { get; set; }
+        public string FileName { get; set; }
+        public string Severity { get; set; }
+        public string Type { get; set; }
+        public string Message { get; set; }
+        public string RequestedUrl { get; set; }
+
+        /// <summary>First few stack frames, when the entry carried a stack trace.</summary>
+        public string StackTraceHead { get; set; }
+    }
+
+    /// <summary>
+    /// Aggregated IIS W3C access-log activity for the window. Raw log lines are never returned — only
+    /// counts, a status histogram, the 5xx responses, and the slowest requests.
+    /// </summary>
+    public class McpIncidentIisSection
+    {
+        public bool Available { get; set; }
+
+        /// <summary>W3C log timestamps are always UTC, regardless of the log-rollover setting.</summary>
+        public string TimestampInterpretation { get; set; }
+
+        public int SiteId { get; set; }
+        public string LogFolder { get; set; }
+        public List<string> FilesScanned { get; set; } = new List<string>();
+
+        public long LinesScanned { get; set; }
+
+        /// <summary>Data lines that could not be parsed (short rows, unexpected field values).</summary>
+        public int MalformedLines { get; set; }
+
+        /// <summary>True when the line-scan ceiling was hit and later lines were not examined.</summary>
+        public bool Truncated { get; set; }
+
+        public int TotalRequests { get; set; }
+
+        /// <summary>
+        /// Per-minute request counts. Populated in WINDOW mode only (at most 240 rows for the 120-minute
+        /// maximum), where minute resolution is what shows traffic falling off the instant a pool dies.
+        /// Empty in search mode — see <c>RequestsPerHour</c>.
+        /// </summary>
+        public List<McpIncidentMinuteCount> RequestsPerMinute { get; set; } = new List<McpIncidentMinuteCount>();
+
+        /// <summary>
+        /// Per-hour request counts. Populated in SEARCH mode only, where the lookback can be 14 days —
+        /// minute rows would be ~20,000 entries of pure context bloat for a result the caller is reading
+        /// for its matches, not its traffic shape. Empty in window mode — see <c>RequestsPerMinute</c>.
+        /// </summary>
+        public List<McpIncidentMinuteCount> RequestsPerHour { get; set; } = new List<McpIncidentMinuteCount>();
+
+        /// <summary>Counts keyed by "status.substatus", e.g. "200.0", "500.0", "503.2".</summary>
+        public List<McpIncidentCount> StatusHistogram { get; set; } = new List<McpIncidentCount>();
+
+        public int TotalServerErrors { get; set; }
+        public int ReturnedServerErrors { get; set; }
+        public bool ServerErrorsTruncated { get; set; }
+        public List<McpIisRequestEntry> ServerErrors { get; set; } = new List<McpIisRequestEntry>();
+
+        public List<McpIisRequestEntry> SlowestRequests { get; set; } = new List<McpIisRequestEntry>();
+
+        /// <summary>
+        /// Requests whose redacted username / URI / query / client IP / referer contained the Query
+        /// substring — ALL status codes, not just 5xx, because a user's full request trail is the point.
+        /// Empty when no query was supplied. The aggregates above always cover the whole window,
+        /// unfiltered, so traffic context survives the filter.
+        /// </summary>
+        public List<McpIisRequestEntry> MatchedRequests { get; set; } = new List<McpIisRequestEntry>();
+
+        /// <summary>
+        /// Requests matching the Query across the whole window, before the cap. Zero when no query was
+        /// supplied — use <c>TotalRequests</c> for the unfiltered count.
+        /// </summary>
+        public int MatchedCount { get; set; }
+        public bool MatchedRequestsTruncated { get; set; }
+
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// One bucket of the request-rate series. The bucket width is minutes or hours depending on which
+    /// list it came from; the labels are preformatted strings so a local wall time cannot be re-read as
+    /// an instant somewhere down the wire.
+    /// </summary>
+    public class McpIncidentMinuteCount
+    {
+        /// <summary>Bucket start in UTC, e.g. <c>2026-08-27 15:01</c> (or <c>15:00</c> for an hour bucket).</summary>
+        public string MinuteUtc { get; set; }
+
+        /// <summary>Bucket start in server-local wall time, e.g. <c>2026-08-27 11:01</c>.</summary>
+        public string MinuteLocal { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    public class McpIncidentCount
+    {
+        public string Key { get; set; }
+        public int Count { get; set; }
+    }
+
+    /// <summary>
+    /// One IIS request. Client IP and <c>cs-username</c> are deliberately retained — they are the whole
+    /// point of correlating an outage to who was hitting what. Query strings are redacted, and
+    /// <c>cs(Cookie)</c> / <c>cs(Authorization)</c> columns are never read at all.
+    /// </summary>
+    public class McpIisRequestEntry
+    {
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:01:12Z</c>.</summary>
+        public string TimestampUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:01:12</c>.</summary>
+        public string TimestampLocal { get; set; }
+        public string Method { get; set; }
+        public string UriStem { get; set; }
+        public string UriQuery { get; set; }
+        public int Status { get; set; }
+        public int SubStatus { get; set; }
+        public long Win32Status { get; set; }
+        public int TimeTakenMs { get; set; }
+        public string UserName { get; set; }
+        public string ClientIp { get; set; }
+
+        /// <summary>
+        /// The <c>cs(Referer)</c> column, redacted. Returned because a Query can match on it: without the
+        /// field, a hit on a referer looks like a false positive to the caller (a search for "macdot"
+        /// legitimately matching /appstatus requests referred from a macdot page, with no visible reason).
+        /// Empty when the server does not log the column.
+        /// </summary>
+        public string Referer { get; set; }
+    }
+
+    /// <summary>
+    /// http.sys error-log activity. These are the 503s that never reach the site's own IIS log because
+    /// the app pool was already down (AppOffline, QueueFull, Disabled, connection timers).
+    /// </summary>
+    public class McpIncidentHttpErrSection
+    {
+        public bool Available { get; set; }
+
+        /// <summary>HTTPERR timestamps are always UTC.</summary>
+        public string TimestampInterpretation { get; set; }
+
+        public string LogFolder { get; set; }
+        public List<string> FilesScanned { get; set; } = new List<string>();
+        public long LinesScanned { get; set; }
+        public int MalformedLines { get; set; }
+
+        public int TotalMatched { get; set; }
+
+        /// <summary>
+        /// Records that also contained the Query substring. Equals <c>TotalMatched</c> when no query was
+        /// supplied. Matching runs after redaction.
+        /// </summary>
+        public int MatchedCount { get; set; }
+
+        public int ReturnedCount { get; set; }
+        public bool Truncated { get; set; }
+
+        /// <summary>Counts keyed by the http.sys reason phrase, e.g. "AppOffline", "QueueFull".</summary>
+        public List<McpIncidentCount> ReasonHistogram { get; set; } = new List<McpIncidentCount>();
+
+        public List<McpHttpErrEntry> Entries { get; set; } = new List<McpHttpErrEntry>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpHttpErrEntry
+    {
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:01:12Z</c>.</summary>
+        public string TimestampUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:01:12</c>.</summary>
+        public string TimestampLocal { get; set; }
+        public string ClientIp { get; set; }
+        public string Method { get; set; }
+        public string Uri { get; set; }
+        public int Status { get; set; }
+
+        /// <summary>http.sys reason, e.g. "AppOffline", "QueueFull", "Timer_ConnectionIdle".</summary>
+        public string Reason { get; set; }
+
+        public string QueueName { get; set; }
+    }
+
+    /// <summary>Windows Event Log entries from the Application and System channels. Security is never read.</summary>
+    public class McpIncidentEventLogSection
+    {
+        public bool Available { get; set; }
+
+        /// <summary>Event Log timestamps are stored in UTC and reported here in both forms.</summary>
+        public string TimestampInterpretation { get; set; }
+
+        public List<McpEventLogChannel> Channels { get; set; } = new List<McpEventLogChannel>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpEventLogChannel
+    {
+        public string LogName { get; set; }
+        public bool Available { get; set; }
+
+        /// <summary>Records the XPath query returned, before provider filtering, the Query filter, and the cap.</summary>
+        public int TotalMatched { get; set; }
+
+        /// <summary>
+        /// Records that survived provider filtering AND contained the Query substring. Matching runs
+        /// after redaction.
+        /// </summary>
+        public int MatchedCount { get; set; }
+
+        public int ReturnedCount { get; set; }
+        public bool Truncated { get; set; }
+
+        public List<McpEventLogEntry> Entries { get; set; } = new List<McpEventLogEntry>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class McpEventLogEntry
+    {
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-27T15:01:12Z</c>.</summary>
+        public string TimestampUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-27T11:01:12</c>.</summary>
+        public string TimestampLocal { get; set; }
+        public string LogName { get; set; }
+        public int EventId { get; set; }
+
+        /// <summary>"Critical", "Error", "Warning", "Information", or the numeric level when unmapped.</summary>
+        public string Level { get; set; }
+
+        public string ProviderName { get; set; }
+
+        /// <summary>Rendered description, redacted and truncated to 1000 characters.</summary>
+        public string Message { get; set; }
     }
 }

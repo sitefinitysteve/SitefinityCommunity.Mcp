@@ -24,6 +24,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             appHost.RegisterService(typeof(McpSettingsSearchService));
             appHost.RegisterService(typeof(McpWhereUsedService));
             appHost.RegisterService(typeof(McpPermissionsService));
+            appHost.RegisterService(typeof(McpSystemLogService));
             appHost.RegisterService(typeof(McpMaintenanceService));
         }
     }

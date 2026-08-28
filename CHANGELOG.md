@@ -2,6 +2,25 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] — 2026-08-28
+
+### Added
+
+- **`sitefinity_investigate_incident`** — one tool, three modes, for outage forensics across four log sources: Sitefinity's own logs, the site's IIS W3C access log, the Windows Application + System event logs (WAS app-pool crashes, Application Error 1000, .NET Runtime 1026), and the http.sys HTTPERR log (the 503s that never reach the site log because the app pool was already dead).
+  - **Discovery** (no arguments): scans a lookback period (default 72h, max 14 days) for crash-shaped signals and returns clustered candidate incident moments, newest first.
+  - **Window** (`time`): reconstructs one moment across all four sources — IIS is returned as aggregates only (per-minute counts, status histogram with sub-status, capped 5xx and slowest lists), never raw lines.
+  - **Search** (`query`): sweeps every source for a case-insensitive substring (a username, an order id, a URL) — matched **after** secret redaction, so it cannot probe for redacted values.
+  - Every entry carries both `TimestampUtc` and `TimestampLocal` as pre-formatted ISO strings, with the server time zone and the DST-correct offset at the queried instant — Sitefinity logs (local), W3C/HTTPERR (UTC), and event records (UTC) can no longer be misread against each other.
+  - Bounded by fixed per-source caps, a 2M-line scan ceiling, a 30-second wall-clock budget, and a one-scan-at-a-time gate (HTTP 429) — partial results carry warnings, never hangs. Denied event-log or IIS-folder ACLs degrade to warnings carrying the exact `net localgroup` / `icacls` fix.
+  - New plugin endpoint `GET /mcp/incident-window` (`McpSystemLogService.cs` — one new plugin source file) and new optional Sitefinity setting **IIS Log Path** (Admin > Advanced > McpSettings) overriding the auto-detected `W3SVC{siteId}` folder.
+  - `cs(Cookie)` / `cs(Authorization)` columns are never read; `cs-username` and client IPs are deliberately retained (they are what makes correlation possible). All other output is secret-redacted, with IIS query strings deny-listed per parameter name.
+
+### Changed
+
+- **BREAKING: log tools consolidated from six to four.** `sitefinity_read_error_log`, `sitefinity_read_trace_log`, and `sitefinity_get_last_error` were removed — they differed from `sitefinity_read_log_file` only by a preset argument. `sitefinity_read_log_file` now defaults `fileName` to `Error.log` (no-args = latest errors; `count: 1` = the most recent entry with full stack trace). `sitefinity_search_logs` and `sitefinity_list_log_files` are unchanged. No plugin endpoints were removed.
+- `Microsoft.Extensions.Hosting` / `Microsoft.Extensions.Http` bumped 9.0.4 → 10.0.11.
+- `AGENTS.md` fully re-synced from `CLAUDE.md` (it had drifted).
+
 ## [2.0.4] — 2026-08-22
 
 ### Fixed

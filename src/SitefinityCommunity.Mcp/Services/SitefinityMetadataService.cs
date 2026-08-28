@@ -397,6 +397,60 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             ?? new MaintenanceResponse { Operation = "recycle" };
     }
 
+    public async Task<IncidentResponse> GetIncidentWindowAsync(
+        string? center = null,
+        int windowMinutes = 0,
+        int lookbackHours = 0,
+        string? query = null,
+        string? sources = null,
+        string? environment = null,
+        CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var url = "/RestApi/mcp/incident-window?format=json";
+
+        if (!string.IsNullOrWhiteSpace(center))
+        {
+            url += $"&Center={Uri.EscapeDataString(center)}";
+        }
+
+        if (windowMinutes > 0)
+        {
+            url += $"&WindowMinutes={windowMinutes}";
+        }
+
+        if (lookbackHours > 0)
+        {
+            url += $"&LookbackHours={lookbackHours}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            url += $"&Query={Uri.EscapeDataString(query)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(sources))
+        {
+            url += $"&Sources={Uri.EscapeDataString(sources)}";
+        }
+
+        var response = await client.GetAsync(url, ct);
+
+        // A 404 here means the site is up but this endpoint does not exist — an older plugin build.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new HttpRequestException(
+                "The /RestApi/mcp/incident-window endpoint returned 404 — the installed Sitefinity plugin is " +
+                "out of date. Re-run install-plugin.ps1 against the Sitefinity project and rebuild the site.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<IncidentResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new IncidentResponse { Mode = "window" };
+    }
+
     private HttpClient CreateClient(string? environment)
     {
         var (_, config) = this._resolver.Resolve(environment);

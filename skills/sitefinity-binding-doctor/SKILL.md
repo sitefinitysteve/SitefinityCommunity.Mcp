@@ -160,7 +160,7 @@ try {
 ```
 
 - With `customErrors="On"` the YSOD body is hidden - read the real exception from `App_Data\Sitefinity\Logs\Error.log` instead (search for `Could not load file or assembly`).
-- **If a Sitefinity MCP server is connected**, prefer its tools over scraping: `sitefinity_check_status` (up vs booting), `sitefinity_get_last_error`, and `sitefinity_read_error_log` / `sitefinity_search_logs` with the query `Could not load file or assembly` - the log entry contains the full fusion-style message naming the assembly, the requested version, AND which assembly asked for it.
+- **If a Sitefinity MCP server is connected**, prefer its tools over scraping: `sitefinity_check_status` (up vs booting), `sitefinity_read_log_file` (defaults to Error.log; `count: 1` for the latest entry), and `sitefinity_search_logs` with the query `Could not load file or assembly` - the log entry contains the full fusion-style message naming the assembly, the requested version, AND which assembly asked for it.
 - The error names the REQUESTED version (what the caller compiled against). Your redirect's job is to map that request to what's in bin - which is why `newVersion` comes from the bin inventory, not from the error message.
 
 ## Step 5 - The fix loop

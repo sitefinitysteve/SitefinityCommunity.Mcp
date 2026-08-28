@@ -56,7 +56,7 @@ Do not declare a Sitefinity change finished until you have proven it:
 
 - **Build the solution** - these projects need **msbuild**, not `dotnet build` (see `sitefinity-cli-build`).
 - **For page / widget changes, inspect the actual persisted state** rather than trusting the code: MCP `sitefinity_get_page_widget_tree` and `sitefinity_get_widget_properties`, or the verified SQL in `sitefinity-page-inspector` / `sitefinity-page-controls-map`.
-- **Check the error log** for startup and runtime failures: MCP `sitefinity_read_error_log`, or `App_Data/Sitefinity/Logs/Error.log` on disk.
+- **Check the error log** for startup and runtime failures: MCP `sitefinity_read_log_file` (defaults to Error.log), or `App_Data/Sitefinity/Logs/Error.log` on disk.
 - **Remember the app restarts** after any `bin/` or `web.config` change, and **Sitefinity startup is slow (30-90s)** after a recycle - a blank or "Please wait" response often just means it is still booting, not that your change failed.
 
 ## Skill router

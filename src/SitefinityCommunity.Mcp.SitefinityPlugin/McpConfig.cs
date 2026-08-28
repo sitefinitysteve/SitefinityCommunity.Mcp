@@ -40,5 +40,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             get { return (bool)this["AllowWriteOperations"]; }
             set { this["AllowWriteOperations"] = value; }
         }
+
+        [ObjectInfo(Title = "IIS Log Path", Description = "Optional override for the folder holding this site's IIS W3C access logs (e.g. D:\\Logs\\W3SVC3). Leave blank to auto-detect %SystemDrive%\\inetpub\\logs\\LogFiles\\W3SVC{siteId} from the hosting environment. Used by the incident-window endpoint.")]
+        [ConfigurationProperty("IisLogPath", DefaultValue = "")]
+        public string IisLogPath
+        {
+            get { return (string)this["IisLogPath"]; }
+            set { this["IisLogPath"] = value; }
+        }
     }
 }

@@ -9,6 +9,12 @@ namespace SitefinityCommunity.Mcp.Tools;
 /// MCP tools for reading and searching Sitefinity log files. The concrete log provider
 /// (filesystem vs HTTP) is picked per-environment via <see cref="ILogProviderFactory"/>.
 /// Parsed entries come from <see cref="LogParsingService"/>.
+/// <para>
+/// Three tools, deliberately: read the newest entries of one file, search across files, list what
+/// files exist. Reading Error.log and reading "the last error" were once separate tools; they are now
+/// <c>sitefinity_read_log_file</c> with a default file name and a count, because near-duplicate tools
+/// cost the agent a choice on every call without giving it anything new.
+/// </para>
 /// </summary>
 [McpServerToolType]
 public sealed class LogTools
@@ -20,28 +26,6 @@ public sealed class LogTools
     {
         this._logProviderFactory = logProviderFactory;
         this._logParser = logParser;
-    }
-
-    [McpServerTool(Name = "sitefinity_read_error_log", Title = "Read Error Log", ReadOnly = true)]
-    [Description("Read the last N entries from Sitefinity's Error.log. Returns parsed error entries with timestamp, message, severity, stack trace, and requested URL.")]
-    public async Task<string> ReadErrorLog(
-        [Description("Number of entries to return (default: 10, max: 50)")] int count = 10,
-        [Description("Target environment name (uses default if omitted)")] string? environment = null,
-        CancellationToken ct = default)
-    {
-        count = Math.Clamp(count, 1, 50);
-        return await ReadLogByName("Error.log", count, environment, ct);
-    }
-
-    [McpServerTool(Name = "sitefinity_read_trace_log", Title = "Read Trace Log", ReadOnly = true)]
-    [Description("Read the last N entries from Sitefinity's Trace.log. Returns parsed trace entries with timestamp and message.")]
-    public async Task<string> ReadTraceLog(
-        [Description("Number of entries to return (default: 10, max: 50)")] int count = 10,
-        [Description("Target environment name (uses default if omitted)")] string? environment = null,
-        CancellationToken ct = default)
-    {
-        count = Math.Clamp(count, 1, 50);
-        return await ReadLogByName("Trace.log", count, environment, ct);
     }
 
     [McpServerTool(Name = "sitefinity_list_log_files", Title = "List Log Files", ReadOnly = true)]
@@ -78,10 +62,17 @@ public sealed class LogTools
     }
 
     [McpServerTool(Name = "sitefinity_read_log_file", Title = "Read Log File", ReadOnly = true)]
-    [Description("Read any Sitefinity log file by name. Returns the last N parsed entries from the specified file.")]
+    [Description("Read the most recent entries from a Sitefinity log file — THE tool for \"check the error log\", " +
+                 "\"what are the latest errors\", or \"show me the last exception\". fileName defaults to " +
+                 "\"Error.log\", so calling it with no arguments returns the last 10 errors, each parsed into " +
+                 "timestamp, severity, type, message, requested URL, and stack trace. Pass count: 1 for just the " +
+                 "most recent entry with its full stack trace. Other common targets are \"Trace.log\" (general " +
+                 "runtime trace) and any name from sitefinity_list_log_files. To find a specific error across all " +
+                 "files rather than reading the newest ones, use sitefinity_search_logs; to work out what happened " +
+                 "at a particular time or during an outage, use sitefinity_investigate_incident.")]
     public async Task<string> ReadLogFile(
-        [Description("Name of the log file (e.g., 'Error.log', 'Trace.log')")] string fileName,
-        [Description("Number of entries to return (default: 10, max: 50)")] int count = 10,
+        [Description("Name of the log file. Defaults to 'Error.log'; 'Trace.log' and any name from sitefinity_list_log_files also work.")] string fileName = "Error.log",
+        [Description("Number of entries to return (default: 10, max: 50). Use 1 for the single most recent entry.")] int count = 10,
         [Description("Target environment name (uses default if omitted)")] string? environment = null,
         CancellationToken ct = default)
     {
@@ -90,7 +81,7 @@ public sealed class LogTools
     }
 
     [McpServerTool(Name = "sitefinity_search_logs", Title = "Search Logs", ReadOnly = true)]
-    [Description("Search Sitefinity log files using a regex pattern. Returns matching lines with surrounding context. Searches newest files first and stops after maxMatches hits, so it stays fast on large prod logs. To narrow a slow search, set fileName (e.g. 'Error.log') to search a single file instead of the whole rolled set.")]
+    [Description("Search Sitefinity log files using a regex pattern. Returns matching lines with surrounding context. Searches newest files first and stops after maxMatches hits, so it stays fast on large prod logs. To narrow a slow search, set fileName (e.g. 'Error.log') to search a single file instead of the whole rolled set. This searches ONLY Sitefinity's own .log files — to search the Windows event log, IIS access log, or HTTPERR (e.g. 'look for crashes in the event log'), use sitefinity_investigate_incident instead: no arguments for crash discovery, or query + sources for a targeted sweep.")]
     public async Task<string> SearchLogs(
         [Description("Regex pattern to search for (e.g., 'NullReference', 'timeout.*sql')")] string pattern,
         [Description("Number of context lines before and after each match (default: 2)")] int contextLines = 2,
@@ -140,74 +131,6 @@ public sealed class LogTools
         catch (Exception ex)
         {
             return $"Error searching logs: {ex.Message}";
-        }
-    }
-
-    [McpServerTool(Name = "sitefinity_get_last_error", Title = "Get Last Error", ReadOnly = true)]
-    [Description("Get the most recent error from Sitefinity's Error.log with full details including stack trace.")]
-    public async Task<string> GetLastError(
-        [Description("Target environment name (uses default if omitted)")] string? environment = null,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var provider = this._logProviderFactory.Create(environment);
-            var content = await provider.ReadFileAsync("Error.log", ct);
-
-            var entries = this._logParser.GetLastEntries(content, 1);
-            if (entries.Count == 0)
-            {
-                return "No errors found in Error.log.";
-            }
-
-            var entry = entries[0];
-            var sb = new StringBuilder();
-            sb.AppendLine("=== Most Recent Error ===");
-            sb.AppendLine();
-
-            if (entry.Timestamp.HasValue)
-            {
-                sb.AppendLine($"Time:     {entry.Timestamp:yyyy-MM-dd HH:mm:ss}");
-            }
-
-            if (!string.IsNullOrEmpty(entry.Severity))
-            {
-                sb.AppendLine($"Severity: {entry.Severity}");
-            }
-
-            if (!string.IsNullOrEmpty(entry.Type))
-            {
-                sb.AppendLine($"Type:     {entry.Type}");
-            }
-
-            sb.AppendLine($"Message:  {entry.Message}");
-
-            if (!string.IsNullOrEmpty(entry.RequestedUrl))
-            {
-                sb.AppendLine($"URL:      {entry.RequestedUrl}");
-            }
-
-            if (!string.IsNullOrEmpty(entry.MachineName))
-            {
-                sb.AppendLine($"Machine:  {entry.MachineName}");
-            }
-
-            if (!string.IsNullOrEmpty(entry.StackTrace))
-            {
-                sb.AppendLine();
-                sb.AppendLine("Stack Trace:");
-                sb.AppendLine(entry.StackTrace);
-            }
-
-            return sb.ToString();
-        }
-        catch (FileNotFoundException)
-        {
-            return "Error.log not found. Sitefinity may not have logged any errors yet.";
-        }
-        catch (Exception ex)
-        {
-            return $"Error reading last error: {ex.Message}";
         }
     }
 

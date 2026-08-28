@@ -38,4 +38,18 @@ public interface ISitefinityMetadataService
     Task<PermissionsResponse> GetPermissionsAsync(string identifier, string? typeFullName = null, string? environment = null, CancellationToken ct = default);
     Task<MaintenanceResponse> ClearCacheAsync(string? scope = null, string? pageIdentifier = null, string? environment = null, CancellationToken ct = default);
     Task<MaintenanceResponse> RecycleApplicationAsync(string? environment = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Correlates Sitefinity, IIS, Windows Event Log, and HTTPERR activity. Supplying
+    /// <paramref name="center"/> reconstructs one window; omitting it returns candidate incident
+    /// moments (or, with a <paramref name="query"/>, a search across the lookback period).
+    /// </summary>
+    Task<IncidentResponse> GetIncidentWindowAsync(
+        string? center = null,
+        int windowMinutes = 0,
+        int lookbackHours = 0,
+        string? query = null,
+        string? sources = null,
+        string? environment = null,
+        CancellationToken ct = default);
 }

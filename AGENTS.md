@@ -15,7 +15,7 @@ SitefinityCommunity.Mcp/
 ├── AGENTS.md                          ← You are here
 ├── README.md                          ← User-facing docs
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
-├── install-skills.ps1                 ← Offline installer: Claude/Codex/Cursor/Copilot (project or global) — fallback to `npx skills`
+├── install-skills.ps1                 ← Offline installer: Claude/Cursor/Codex/Copilot (project or global) — fallback to `npx skills`
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
 ├── skills/                            ← 16 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
 │   ├── sitefinity-best-practices/
@@ -60,6 +60,7 @@ SitefinityCommunity.Mcp/
     │   │   ├── PageTemplateInfo.cs / TemplatesResponse.cs ← Page templates
     │   │   ├── TaxonomyInfo.cs / TaxonInfo.cs / TaxonomiesResponse.cs ← Classifications
     │   │   ├── FormInfo.cs / FormFieldInfo.cs / FormResponseInfo.cs ← Forms + submissions
+    │   │   ├── IncidentWindowResponse.cs ← Incident envelope (window / candidates / search) + all four source sections
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -77,11 +78,11 @@ SitefinityCommunity.Mcp/
     │   ├── Security/
     │   │   └── SecretRedactor.cs      ← Deny-list + pattern scanner for secrets
     │   ├── Tools/                     ← MCP TOOLS (auto-discovered)
-    │   │   ├── LogTools.cs            ← read_error_log, read_trace_log, list_log_files, etc.
+    │   │   ├── LogTools.cs            ← read_log_file (defaults to Error.log), search_logs, list_log_files
     │   │   ├── EnvironmentTools.cs    ← list_environments, set_default_environment
     │   │   ├── SitefinityStatusTools.cs ← check_status
     │   │   ├── SitefinityInfoTools.cs ← get_site_info, list_modules
-    │   │   ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields
+    │   │   ├── ContentTypeTools.cs    ← list_dynamic_types, get_type_fields, get_module_structure
     │   │   ├── RouteTools.cs          ← list_page_routes, list_api_routes
     │   │   ├── PageTools.cs           ← get_page_details, get_widget_properties, get_page_widget_tree
     │   │   ├── ContentTools.cs        ← list_content
@@ -91,6 +92,7 @@ SitefinityCommunity.Mcp/
     │   │   ├── ConfigTools.cs         ← list_config_sections, get_config_section
     │   │   ├── WhereUsedTools.cs      ← where_used (reverse lookup)
     │   │   ├── PermissionTools.cs     ← get_permissions
+    │   │   ├── IncidentTools.cs       ← investigate_incident (SF + IIS + EventLog + HTTPERR correlation)
     │   │   └── MaintenanceTools.cs    ← clear_cache, recycle_app (WRITE; gated)
     │   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
     │   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
@@ -110,6 +112,7 @@ SitefinityCommunity.Mcp/
         ├── McpConfigService.cs        ← ServiceStack service handlers (config section reader; redacted)
         ├── McpWhereUsedService.cs     ← ServiceStack service handler (reverse lookup)
         ├── McpPermissionsService.cs   ← ServiceStack service handler (effective permissions)
+        ├── McpSystemLogService.cs     ← ServiceStack service handler (incident window / candidate discovery / cross-source search: SF + IIS + Event Log + HTTPERR)
         ├── McpMaintenanceService.cs   ← ServiceStack service handlers (clear cache / recycle; WRITE, gated)
         ├── McpSecretRedactor.cs       ← .NET 4.8 mirror of SecretRedactor (scrubs forms/widgets/config)
         └── README.md                  ← Plugin installation guide
@@ -193,7 +196,8 @@ public sealed class MyNewTools
 
 ### Conventions
 
-- Tool names: `sitefinity_` prefix, snake_case (e.g. `sitefinity_read_error_log`)
+- Tool names: `sitefinity_` prefix, snake_case (e.g. `sitefinity_read_log_file`)
+- **Prefer a parameter over a near-duplicate tool.** Every tool costs the agent a choice on every call. `read_error_log` / `read_trace_log` / `get_last_error` were collapsed into `sitefinity_read_log_file` (default `fileName`, `count: 1` for the latest) because they differed only by an argument. Split a tool out only when it does something genuinely different, not when it does the same thing with a preset.
 - Return type: a typed response model (`Task<MyResponse>`) with `UseStructuredContent = true` when the tool returns data — the SDK publishes an output schema and structured content automatically. Use `Task<string>` only for human-formatted text output (logs, status summaries, markdown tables)
 - Include `string? environment = null` parameter on tools that target a specific environment
 - Include `CancellationToken ct = default` for async operations
@@ -314,19 +318,44 @@ Sitefinity logs use a format where entries are separated by 40-dash lines (`----
 Everything this MCP returns lands in an LLM context window, which may be logged, cached, or transmitted to third-party model providers. Two mirrored redaction classes enforce scrubbing before text leaves either side:
 
 - **MCP server side** — `Security/SecretRedactor.cs` (.NET 10, source-generated regex). Wired into `LocalLogProvider.ReadFileAsync` + `SearchAsync` so filesystem log reads are scrubbed before parsing.
-- **Plugin side** — `McpSecretRedactor.cs` (.NET 4.8, compiled regex). Wired into `McpFormsService` (field names + values) and `McpConfigService` (config values).
+- **Plugin side** — `McpSecretRedactor.cs` (.NET 4.8, compiled regex). Wired into `McpFormsService` (field names + values) and planned for `McpMetadataService` widget properties.
 
 Redaction has two layers:
 1. **Field-name deny-list** — exact matches (`password`, `apikey`, `token`, `authorization`, …) and substring fragments (`*secret*`, `*password*`) replace the whole value with `[REDACTED]`.
 2. **Value-pattern scanner** — regex matches for JWTs, bearer headers, AWS/GitHub/Slack/OpenAI tokens, Azure storage keys, connection-string passwords, App Insights instrumentation keys.
 
-**Redaction is UNCONDITIONAL everywhere — there is no opt-out.** Logs (`LocalLogProvider.ReadFileAsync` / `SearchAsync`) always run through `SecretRedactor.Redact` in every environment, including dev. There is intentionally no `allowRawSecrets` flag — a raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data).
+**Redaction is UNCONDITIONAL everywhere — there is no opt-out.** Logs (`LocalLogProvider.ReadFileAsync` / `SearchAsync`) always run through `SecretRedactor.Redact` in every environment, including dev. There is intentionally no `allowRawSecrets` flag — a raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so the server never emits one.
 
-**Config reader is UNCONDITIONAL (no opt-out):** the config dump (`/mcp/config/{SectionName}`) **always** redacts anything credential-shaped — `[SecretData]`/encrypted properties, connection strings, and any path/leaf name containing key/secret/token/password/etc. — in **every** environment including dev. There is no flag to reveal config secrets. A raw secret/key/password in the LLM context is a leak (it can be logged, cached, or absorbed into training data), so `McpConfigService.BuildEntry` over-redacts deliberately.
-
-**Write operations (cache clear / recycle):** `sitefinity_clear_cache` / `sitefinity_recycle_app` are gated on both sides — per-environment `allowWriteOperations` (prod-guarded `EffectiveAllowWriteOperations`) on the server, and `McpConfig.AllowWriteOperations` (admin switch, HTTP 403 when off) in the plugin. Both must opt in.
+**Config reader is UNCONDITIONAL (no opt-out):** the config dump (`/mcp/config/{SectionName}`) **always** redacts anything credential-shaped — `[SecretData]`/encrypted properties, connection strings, and any path/leaf name containing key/secret/token/password/etc. — in **every** environment including dev. There is no flag to reveal config secrets. A raw secret/key/password in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so `McpConfigService.BuildEntry` over-redacts deliberately.
 
 **Important:** any new tool returning user-authored content (widget properties, content fields, form submissions, logs, config values) must route string values through the redactor on the side closest to the data source. Credentials/keys/passwords must never reach the LLM in raw form, regardless of environment.
+
+### Incident Correlation (`sitefinity_investigate_incident`)
+
+One tool, one plugin endpoint (`/mcp/incident-window`), three modes — deliberately not four tools.
+
+**Clock discipline is the whole point.** The four sources disagree: Sitefinity writes **server-local** time, W3C access logs and HTTPERR are **always UTC**, Event Log records are stored in UTC. So every entry is emitted with both `TimestampUtc` and `TimestampLocal`, and the response carries `ServerTimeZoneId` + `ServerUtcOffsetMinutes` computed via `TimeZoneInfo.Local.GetUtcOffset(<the queried instant>)` — **not** `DateTime.Now`, which would report the wrong offset for a window sitting in a different DST period.
+
+**Modes:** `Center` → window; `Query` alone → search over `LookbackHours`; neither → candidate discovery. Discovery scans only the cheap high-signal sources (event-log crash records, HTTPERR per-minute bursts, Sitefinity error-density buckets) and clusters signals within 10 minutes into one candidate, ranked WAS crash > Application Error 1000 > .NET Runtime 1026 > HTTPERR burst > Sitefinity burst. It never touches the IIS access log — search mode does, because a single line ceiling plus the time budget bound it.
+
+**⚠️ Timestamps on the wire are pre-formatted STRINGS, by design — never `DateTime` DTO properties.** ServiceStack serializes a `DateTime` as `/Date(ms)/`, an *instant*, which destroys a server-local wall time: the MCP server's `SitefinityDateTimeConverter` then re-renders 11:00 local as 15:00 UTC. Every incident timestamp is formatted at assignment via `FormatUtc` (`yyyy-MM-ddTHH:mm:ssZ`) / `FormatLocal` (`yyyy-MM-ddTHH:mm:ss`, no suffix — the header's `ServerTimeZoneId` / `ServerUtcOffsetMinutes` state the zone), and the matching server models are `string` too. Internal window math stays `DateTime`; only the DTO surface is string. **Never "fix" this with `JsConfig.DateHandler = ISO8601`** or any other `JsConfig` global/scoped tweak: Sitefinity's own backend runs on the same ServiceStack instance, and a global date-format change breaks the admin site-wide. `MinuteUtc`/`MinuteLocal` were always strings and were the only fields immune to the original bug — that is the pattern.
+
+**Bounding.** Fixed caps (20 SF / 25 per event channel / 25 IIS 5xx / 10 slowest / 50 query-matched / 25 HTTPERR / 20 candidates), a 2,000,000-line scan ceiling, and a 30-second wall-clock `ScanBudget` checked between sources, between files, and periodically inside the line and event loops. Exceeding any of them returns partial results plus a `Warnings` entry, never a hang or a failure. The endpoint stays plain synchronous request/response — **no** Sitefinity background-task service, no async job pattern.
+
+The IIS request-rate series is split by mode: `RequestsPerMinute` in window mode (≤240 rows), `RequestsPerHour` in search mode (a 14-day lookback would otherwise emit ~20,000 minute rows). Exactly one is ever populated.
+
+**Redaction + matching order.** Everything outbound goes through `McpSecretRedactor`. Query strings are additionally split into `name=value` pairs and deny-list-checked per parameter name (`McpSecretRedactor.IsDeniedKey`) before the whole string is pattern-scanned. `cs(Cookie)` and `cs(Authorization)` are **never read at all** — a redacted credential is still credential-shaped. `cs-username` and `c-ip` are retained deliberately (documented in both READMEs): correlating an outage to who was hitting what is the point. The `Query` filter matches **after** redaction, mirroring `McpFormsService.SearchTerm`, so it cannot be used as an oracle for redacted values.
+
+**OS permissions.** Reading the event logs needs the app pool identity in the local **Event Log Readers** group; the IIS and HTTPERR folders need read ACLs. Every failure path produces a warning carrying the exact `icacls` / `net localgroup` command rather than an error. The IIS folder is derived from `HostingEnvironment.ApplicationID` (`/LM/W3SVC/{id}/ROOT`, parsed defensively) and overridable via `McpConfig.IisLogPath`.
+
+### Write Operations (Cache Clear / Recycle)
+
+The only state-changing tools (`sitefinity_clear_cache`, `sitefinity_recycle_app`) are gated on **both** sides and never run by default:
+
+1. **MCP server side** — per-environment `allowWriteOperations: true` in `sitefinity-mcp.json`. `EnvironmentConfig.EffectiveAllowWriteOperations(name)` is prod-guarded (always false for names starting with `prod`). `MaintenanceTools` refuses before any network call when this is false.
+2. **Plugin side** — `McpConfig.AllowWriteOperations` (Admin > Advanced > McpSettings > "Allow Write Operations", default false). `McpMaintenanceService.EnsureWriteAllowed()` returns HTTP 403 when off.
+
+Both must opt in. Cache APIs vary across Sitefinity versions, so `McpMaintenanceService` invokes `ClearWholeCache` / `CacheDependency.Notify` / `RestartApplication` **reflectively** and reports in the response exactly what it managed to do.
 
 ## Available Services (for DI)
 
@@ -338,7 +367,7 @@ Redaction has two layers:
 | `LogParsingService` | (concrete) | Parse Sitefinity log format into structured entries |
 | `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped; `WaitForReadyAsync` polls until ready or timeout |
 | `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint |
-| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions; clear cache / recycle |
+| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions, incident windows; clear cache / recycle |
 | `IHttpClientFactory` | (framework) | Create HTTP clients for remote calls |
 | `SitefinityMcpConfig` | (concrete) | Loaded config singleton |
 
@@ -351,12 +380,13 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok" }` |
 | `/mcp/logs` | GET | List all log files with metadata |
 | `/mcp/logs/{FileName}` | GET | Read a log file (optional `MaxLines` query param) |
-| `/mcp/logs/search` | POST | Search all logs with regex pattern |
+| `/mcp/logs/search` | POST | Search logs with a regex pattern. Searches `*.log` files **newest-first** and stops after `MaxMatches` hits (default 200, max 1000) so large prod log sets don't time the client out. Optional `FileName` restricts the search to a single file (e.g. `Error.log`). Streams each file line-by-line — flat memory regardless of file size |
 | `/mcp/logs/last-error` | GET | Most recent error log entry |
 | `/mcp/site-info` | GET | Sitefinity version, .NET version, project name, languages, multisite |
 | `/mcp/modules` | GET | All installed modules with type, status, startup type |
 | `/mcp/dynamic-types` | GET | All Module Builder types grouped by module |
 | `/mcp/dynamic-types/{TypeFullName}/fields` | GET | Fields for a specific dynamic type |
+| `/mcp/modules/{ModuleName}/structure` | GET | Full module tree: nested parent/child types with fields + CLR type hints (POCO-ready) |
 | `/mcp/routes` | GET | Combined page + API routes (backward compat) |
 | `/mcp/page-routes` | GET | CMS page routes with URL evaluation warnings |
 | `/mcp/api-routes` | GET | ServiceStack API routes and OData entity sets |
@@ -374,6 +404,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/settings/search` | GET | Full-text search over the backend `advanced-settings-search` Lucene index (requires `Query`; optional `Take`, default 25, max 100). Returns caption/path/section per hit, secret-redacted; reports `IndexAvailable: false` with enablement guidance when the index is disabled or missing |
 | `/mcp/where-used` | GET | Reverse lookup: every page/template referencing a widget type, content item, or template (requires `Query`; optional `Kind`=widget\|content\|template) |
 | `/mcp/permissions` | GET | Effective per-role granted/denied actions on a page or content item, and whether it inherits (requires `Identifier`; optional `TypeFullName` for a content item) |
+| `/mcp/incident-window` | GET | Incident forensics across four sources — Sitefinity logs (server-local timestamps), the IIS W3C access log (always UTC), the Windows Application + System event logs (UTC; Security never read), and HTTPERR (always UTC). **Three modes**: `Center` set → correlated window (`WindowMinutes`, default 15, clamp 1–120); `Query` set with no `Center` → search across `LookbackHours` (default 72, clamp 1–336); neither → clustered candidate crash moments over `LookbackHours` (IIS deliberately NOT scanned — too large over multi-day ranges). Optional `Sources` (`sitefinity,iis,eventlog,httperr`). Every entry carries `TimestampUtc` + `TimestampLocal`; the response reports `ServerTimeZoneId` and the offset **at the queried instant** (DST-correct). Raw IIS lines are never returned — aggregates plus capped lists only. Bounded by fixed caps, a 2M-line ceiling, and a 30s wall-clock budget (synchronous; no background jobs). `cs(Cookie)` / `cs(Authorization)` are never read; `cs-username` and `c-ip` are deliberately retained |
 | `/mcp/cache/clear` | POST | **Write.** Clear cache: `Scope`=output\|whole\|page (`PageIdentifier` required for page). Refused (403) unless `AllowWriteOperations` is enabled in admin |
 | `/mcp/app/recycle` | POST | **Write.** Restart the Sitefinity application (`SystemManager.RestartApplication`). Refused (403) unless `AllowWriteOperations` is enabled in admin |
 
@@ -383,6 +414,10 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 - **Properties at bottom** — Class organization: constructor, methods, properties
 - **File-scoped namespaces** — Use `namespace X;` not `namespace X { }`
 - **Primary constructors** — Prefer primary constructors for tool classes with simple DI
+- **Readable control flow** — Do not compress `if`, `else`, `catch`, `for`, `foreach`, or `while` bodies onto one line
+- **Braces required** — Always use braces for control-flow blocks, even for single-statement guards
+- **Whitespace around conditionals** — Leave a blank line above and below standalone `if` blocks when it improves scanning and keeps guard clauses from feeling packed together
+- **Keep simple calls compact** — Do not split ordinary function or method argument lists across multiple lines unless the call is genuinely long or hard to scan
 - **Nullable enabled** — Project has `<Nullable>enable</Nullable>`
 - **No manual JSON serialization** — Use `System.Text.Json` with source generators where applicable
 - **Target framework** — .NET 10 (`net10.0`)
