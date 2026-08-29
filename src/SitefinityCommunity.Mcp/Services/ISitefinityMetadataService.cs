@@ -44,6 +44,20 @@ public interface ISitefinityMetadataService
     /// <paramref name="center"/> reconstructs one window; omitting it returns candidate incident
     /// moments (or, with a <paramref name="query"/>, a search across the lookback period).
     /// </summary>
+    /// <summary>
+    /// What the Sitefinity scheduler is running right now, and which task rows are marked failed.
+    /// Bounded, status-filtered queries — the scheduled-task store is never enumerated.
+    /// </summary>
+    Task<ScheduledTaskStatusResponse> GetScheduledTaskStatusAsync(
+        string? environment = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every configured search index with its backend, freshness, rebuild state and the outcome of its
+    /// most recent reindex task.
+    /// </summary>
+    Task<SearchIndexesResponse> GetSearchIndexesAsync(
+        string? environment = null, CancellationToken ct = default);
+
     Task<IncidentResponse> GetIncidentWindowAsync(
         string? center = null,
         int windowMinutes = 0,

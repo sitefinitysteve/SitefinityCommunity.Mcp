@@ -12,13 +12,88 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
 {
     private readonly IEnvironmentResolver _resolver;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IApiKeyValidationService? _apiKeyValidation;
 
+    /// <summary>
+    /// Creates the service. <paramref name="apiKeyValidation"/> is optional and used only to name the
+    /// installed plugin's version in a 404 "plugin out of date" message; without it the message still
+    /// carries the update steps, just not the version it is updating from.
+    /// </summary>
+    /// <param name="resolver">Environment resolver.</param>
+    /// <param name="httpClientFactory">HTTP client factory.</param>
+    /// <param name="apiKeyValidation">Ping cache holding the plugin's reported version.</param>
     public SitefinityMetadataService(
         IEnvironmentResolver resolver,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IApiKeyValidationService? apiKeyValidation = null)
     {
         this._resolver = resolver;
         this._httpClientFactory = httpClientFactory;
+        this._apiKeyValidation = apiKeyValidation;
+    }
+
+    public async Task<ScheduledTaskStatusResponse> GetScheduledTaskStatusAsync(
+        string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var response = await client.GetAsync("/RestApi/mcp/scheduled-tasks?format=json", ct);
+
+        await this.ThrowIfEndpointMissingAsync(response, "/RestApi/mcp/scheduled-tasks", environment, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<ScheduledTaskStatusResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new ScheduledTaskStatusResponse();
+    }
+
+    public async Task<SearchIndexesResponse> GetSearchIndexesAsync(
+        string? environment = null, CancellationToken ct = default)
+    {
+        var client = CreateClient(environment);
+        var response = await client.GetAsync("/RestApi/mcp/search-indexes?format=json", ct);
+
+        await this.ThrowIfEndpointMissingAsync(response, "/RestApi/mcp/search-indexes", environment, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
+        response.EnsureSuccessStatusCode();
+        response.EnsureNotBootstrapping();
+
+        return await response.Content.ReadFromJsonAsync<SearchIndexesResponse>(SitefinityJsonOptions.Default, ct)
+            ?? new SearchIndexesResponse();
+    }
+
+    /// <summary>
+    /// A 404 from a plugin route means the site is up but this endpoint does not exist — the installed
+    /// plugin sources are older than this server. The message names both versions when they are known
+    /// and always carries the commands that fix it.
+    /// </summary>
+    /// <param name="response">Response to inspect.</param>
+    /// <param name="endpoint">Route that was called.</param>
+    /// <param name="environment">Environment name, or null for the default.</param>
+    /// <param name="ct">Cancellation token.</param>
+    private async Task ThrowIfEndpointMissingAsync(
+        HttpResponseMessage response, string endpoint, string? environment, CancellationToken ct)
+    {
+        if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        string? pluginVersion = null;
+
+        if (this._apiKeyValidation is not null)
+        {
+            try
+            {
+                pluginVersion = await this._apiKeyValidation.GetPluginVersionAsync(environment, ct);
+            }
+            catch (Exception)
+            {
+                // Advisory only — the update steps matter more than naming the stale version.
+            }
+        }
+
+        throw new HttpRequestException(PluginVersionAdvisor.BuildNotFoundMessage(endpoint, pluginVersion));
     }
 
     public async Task<SiteInfoResponse> GetSiteInfoAsync(string? environment = null, CancellationToken ct = default)
@@ -459,14 +534,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
 
         var response = await client.GetAsync(url, ct);
 
-        // A 404 here means the site is up but this endpoint does not exist — an older plugin build.
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            throw new HttpRequestException(
-                "The /RestApi/mcp/incident-window endpoint returned 404 — the installed Sitefinity plugin is " +
-                "out of date. Re-run install-plugin.ps1 against the Sitefinity project and rebuild the site.");
-        }
-
+        await this.ThrowIfEndpointMissingAsync(response, "/RestApi/mcp/incident-window", environment, ct);
         await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();

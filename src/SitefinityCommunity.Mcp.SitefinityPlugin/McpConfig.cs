@@ -108,6 +108,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             get { return (McpPermissionsToolElement)this["Permissions"]; }
         }
 
+        [ObjectInfo(Title = "Scheduled Tasks", Description = "Scheduler status and search index diagnostics (/mcp/scheduled-tasks, /mcp/search-indexes). Read-only: what is running right now, what runs next, and the health of each configured search index.")]
+        [ConfigurationProperty("Tasks")]
+        public McpTasksToolElement Tasks
+        {
+            get { return (McpTasksToolElement)this["Tasks"]; }
+        }
+
         [ObjectInfo(Title = "Incident", Description = "Incident forensics across Sitefinity logs, IIS access logs, the Windows event logs and HTTPERR (/mcp/incident-window). Individual OS-level sources can be turned off separately.")]
         [ConfigurationProperty("Incident")]
         public McpIncidentToolElement Incident
@@ -298,6 +305,24 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     }
 
     /// <summary>
+    /// Scheduler status and search index diagnostics (<c>McpTasksService</c>).
+    /// </summary>
+    public class McpTasksToolElement : McpToolElement
+    {
+        /// <summary>Creates the element.</summary>
+        /// <param name="parent">Owning configuration element.</param>
+        public McpTasksToolElement(ConfigElement parent) : base(parent) { }
+
+        [ObjectInfo(Title = "Enabled", Description = "When unchecked, every endpoint in this capability is refused with HTTP 403 and the MCP server hides the matching tools.")]
+        [ConfigurationProperty("Enabled", DefaultValue = true)]
+        public bool Enabled
+        {
+            get { return (bool)this["Enabled"]; }
+            set { this["Enabled"] = value; }
+        }
+    }
+
+    /// <summary>
     /// Incident forensics (<c>McpSystemLogService</c>). Additionally gates the three OS-level log
     /// sources it reads and holds the IIS log folder override. A disabled source is skipped and
     /// reported in the response's <c>Warnings</c> rather than failing the whole call.
@@ -391,6 +416,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// <summary>Effective permissions reader.</summary>
         public const string Permissions = "Permissions";
 
+        /// <summary>Scheduler status and search index diagnostics.</summary>
+        public const string Tasks = "Tasks";
+
         /// <summary>Incident forensics across Sitefinity, IIS, Event Log and HTTPERR.</summary>
         public const string Incident = "Incident";
 
@@ -455,6 +483,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     case ConfigReader: return config.ConfigReader.Enabled;
                     case WhereUsed: return config.WhereUsed.Enabled;
                     case Permissions: return config.Permissions.Enabled;
+                    case Tasks: return config.Tasks.Enabled;
                     case Incident: return config.Incident.Enabled;
                     default: return true;
                 }
@@ -771,6 +800,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 roster.ConfigReader = config.ConfigReader.Enabled;
                 roster.WhereUsed = config.WhereUsed.Enabled;
                 roster.Permissions = config.Permissions.Enabled;
+                roster.Tasks = config.Tasks.Enabled;
                 roster.Maintenance = config.AllowWriteOperations;
                 roster.Incident = new McpIncidentFeatures
                 {

@@ -166,6 +166,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return new McpPingResponse
             {
                 Status = "ok",
+                PluginVersion = McpPluginInfo.Version,
                 Features = McpCapabilities.BuildRoster(),
             };
         }

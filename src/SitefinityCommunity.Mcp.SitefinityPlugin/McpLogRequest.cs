@@ -60,6 +60,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string Status { get; set; }
 
         /// <summary>
+        /// Version of the plugin source installed in this Sitefinity project, from
+        /// <c>McpPluginInfo.Version</c>. Builds before 3.6.0 omit it, which the MCP server reports as
+        /// "3.5.0 or earlier".
+        /// </summary>
+        public string PluginVersion { get; set; }
+
+        /// <summary>
         /// Per-capability roster reflecting Admin &gt; Advanced &gt; McpSettings. Older plugin
         /// builds omit this; MCP servers treat a missing roster as "everything enabled".
         /// </summary>
@@ -93,6 +100,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// <summary>Effective permissions reader.</summary>
         public bool Permissions { get; set; }
 
+        /// <summary>Scheduled-task status and search index diagnostics.</summary>
+        public bool Tasks { get; set; }
+
         /// <summary>Cache clear / application recycle. Mirrors <c>McpConfig.AllowWriteOperations</c>.</summary>
         public bool Maintenance { get; set; }
 
@@ -111,6 +121,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             this.ConfigReader = true;
             this.WhereUsed = true;
             this.Permissions = true;
+            this.Tasks = true;
             this.Maintenance = false;
             this.Incident = new McpIncidentFeatures();
         }
@@ -1411,5 +1422,288 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
         /// <summary>Rendered description, redacted and truncated to 1000 characters.</summary>
         public string Message { get; set; }
+    }
+
+    // ── Scheduled tasks + search index diagnostics DTOs ────────────────
+
+    /// <summary>
+    /// GET /mcp/scheduled-tasks — what the Sitefinity scheduler is doing right now, what runs next,
+    /// and what it last finished.
+    /// </summary>
+    [Route("/mcp/scheduled-tasks", "GET")]
+    public class GetScheduledTasks : IReturn<McpScheduledTaskStatusResponse>
+    {
+    }
+
+    /// <summary>
+    /// Scheduler snapshot. Every section is collected defensively — a failure in one becomes a
+    /// <c>Warnings</c> entry and the rest of the response is still returned.
+    /// <para>
+    /// All timestamps are pre-formatted STRINGS. ServiceStack serializes a <c>DateTime</c> DTO
+    /// property as <c>/Date(ms)/</c>, which destroys a server-local wall time; the UTC form is
+    /// <c>yyyy-MM-ddTHH:mm:ssZ</c> and the local form is <c>yyyy-MM-ddTHH:mm:ss</c> with no suffix
+    /// (the zone is stated once by <c>ServerTimeZoneId</c>).
+    /// </para>
+    /// </summary>
+    public class McpScheduledTaskStatusResponse
+    {
+        /// <summary>Windows time zone id of the server, e.g. <c>Eastern Standard Time</c>.</summary>
+        public string ServerTimeZoneId { get; set; }
+
+        /// <summary>Server UTC offset in minutes at the moment this snapshot was taken.</summary>
+        public int ServerUtcOffsetMinutes { get; set; }
+
+        /// <summary>ISO 8601 UTC instant the snapshot was taken.</summary>
+        public string SnapshotUtc { get; set; }
+
+        /// <summary>Server-local wall time the snapshot was taken, with no zone suffix.</summary>
+        public string SnapshotLocal { get; set; }
+
+        /// <summary>Tasks the scheduler currently has flagged as running. Capped at 25.</summary>
+        public List<McpRunningTaskInfo> RunningNow { get; set; } = new List<McpRunningTaskInfo>();
+
+        /// <summary>
+        /// Tasks whose scheduler status is <c>Failed</c>, newest execution first. Capped at 10.
+        /// This is the "what is broken" section — a failed ReindexTask row is why a search index has
+        /// silently stopped updating.
+        /// </summary>
+        public List<McpFailedTaskInfo> Failed { get; set; } = new List<McpFailedTaskInfo>();
+
+        /// <summary>
+        /// Where successful-execution history lives. Completed rows are deliberately not returned
+        /// (the scheduler routinely deletes them); the trace log is the record of what actually ran.
+        /// </summary>
+        public string HistoryNote { get; set; }
+
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>One task the scheduler is executing right now.</summary>
+    public class McpRunningTaskInfo
+    {
+        public string Id { get; set; }
+
+        /// <summary>
+        /// The task's name as the Sitefinity admin's Scheduled tasks screen shows it — its CLR type
+        /// name, e.g. <c>Telerik.Sitefinity.Publishing.ReindexTask</c>. Read from
+        /// <c>ScheduledTaskData.TaskName</c>, which is always populated.
+        /// </summary>
+        public string Name { get; set; }
+
+        /// <summary>Human title, falling back to the name when the row has none.</summary>
+        public string Title { get; set; }
+
+        /// <summary>
+        /// What the task is operating on, when the row names it — a ReindexTask row carries the search
+        /// index name here (e.g. <c>Docs Index</c>). Null when the row has no title of its own.
+        /// </summary>
+        public string ItemName { get; set; }
+
+        public string Description { get; set; }
+
+        /// <summary>Scheduler key — for a reindex this usually carries the publishing point identity.</summary>
+        public string Key { get; set; }
+
+        /// <summary>ISO 8601 UTC, e.g. <c>2026-08-28T15:01:12Z</c>.</summary>
+        public string StartedUtc { get; set; }
+
+        /// <summary>Server-local wall time with NO zone suffix, e.g. <c>2026-08-28T11:01:12</c>.</summary>
+        public string StartedLocal { get; set; }
+
+        /// <summary>
+        /// Which column the start time was taken from — <c>LastExecutedTime</c>, <c>ExecuteTime</c> or
+        /// <c>LastModified</c>. Sitefinity has no dedicated "started" column, so this states the proxy
+        /// used rather than pretending to a precision it does not have.
+        /// </summary>
+        public string StartedSource { get; set; }
+
+        /// <summary>Seconds elapsed since <c>StartedUtc</c>. A large value on a short task means it is hung.</summary>
+        public long RunningForSeconds { get; set; }
+
+        /// <summary>Whether this task is rebuilding a search index.</summary>
+        public bool IsSearchIndexRebuild { get; set; }
+
+        /// <summary>Search index (catalog) being rebuilt, when one could be identified.</summary>
+        public string IndexName { get; set; }
+
+        /// <summary>Percentage complete, when this Sitefinity version reports it.</summary>
+        public int? Progress { get; set; }
+
+        /// <summary>Scheduler status value, when this Sitefinity version reports it.</summary>
+        public string Status { get; set; }
+
+        /// <summary>Scheduler status message, when this Sitefinity version reports it.</summary>
+        public string StatusMessage { get; set; }
+    }
+
+    /// <summary>One task the scheduler has marked as failed.</summary>
+    public class McpFailedTaskInfo
+    {
+        public string Id { get; set; }
+
+        /// <summary>
+        /// The task's name as the admin's Scheduled tasks screen shows it — its CLR type name. Read
+        /// from <c>ScheduledTaskData.TaskName</c>.
+        /// </summary>
+        public string Name { get; set; }
+
+        /// <summary>Human title, falling back to the name when the row has none.</summary>
+        public string Title { get; set; }
+
+        /// <summary>
+        /// What the task was operating on — for a failed ReindexTask this is the search index name.
+        /// </summary>
+        public string ItemName { get; set; }
+
+        /// <summary>Scheduler key.</summary>
+        public string Key { get; set; }
+
+        /// <summary>ISO 8601 UTC the task was scheduled for, e.g. <c>2026-08-08T15:01:12Z</c>.</summary>
+        public string ScheduledForUtc { get; set; }
+
+        /// <summary>Server-local wall time the task was scheduled for, with NO zone suffix.</summary>
+        public string ScheduledForLocal { get; set; }
+
+        /// <summary>ISO 8601 UTC the failed execution ran. Null when the row never recorded one.</summary>
+        public string ExecutedOnUtc { get; set; }
+
+        /// <summary>Server-local wall time the failed execution ran, with NO zone suffix.</summary>
+        public string ExecutedOnLocal { get; set; }
+
+        /// <summary>Scheduler status value — <c>Failed</c> for every row in this list.</summary>
+        public string Status { get; set; }
+
+        /// <summary>Scheduler status message, redacted and truncated. Usually the failure reason.</summary>
+        public string StatusMessage { get; set; }
+
+        /// <summary>Whether the failed task was rebuilding a search index.</summary>
+        public bool IsSearchIndexRebuild { get; set; }
+
+        /// <summary>Search index (catalog) the failed rebuild targeted, when one could be identified.</summary>
+        public string IndexName { get; set; }
+    }
+
+    /// <summary>
+    /// GET /mcp/search-indexes — every configured search index, its backend, and whether it is
+    /// currently being rebuilt.
+    /// </summary>
+    [Route("/mcp/search-indexes", "GET")]
+    public class GetSearchIndexes : IReturn<McpSearchIndexesResponse>
+    {
+    }
+
+    /// <summary>
+    /// Search index inventory. Every field is best-effort: the search API differs across Lucene,
+    /// Azure Search, Elasticsearch and hybrid backends, so anything unobtainable is left null and
+    /// explained in <c>Warnings</c> rather than failing the call.
+    /// </summary>
+    public class McpSearchIndexesResponse
+    {
+        public string ServerTimeZoneId { get; set; }
+
+        public int ServerUtcOffsetMinutes { get; set; }
+
+        /// <summary>CLR type name of the resolved search service, e.g. <c>LuceneSearchService</c>.</summary>
+        public string SearchServiceType { get; set; }
+
+        /// <summary>
+        /// Publishing providers that were queried for search-index pipes. Search indexes live under
+        /// their OWN publishing provider (<c>SearchPublishingProvider</c>), not the default one, so
+        /// this names every provider searched — the first thing to check if the list comes back empty.
+        /// </summary>
+        public List<string> ProvidersScanned { get; set; } = new List<string>();
+
+        public int TotalIndexes { get; set; }
+
+        public List<McpSearchIndexInfo> Indexes { get; set; } = new List<McpSearchIndexInfo>();
+
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    /// <summary>One configured search index (a search-index pipe on a publishing point).</summary>
+    public class McpSearchIndexInfo
+    {
+        /// <summary>Catalog name — the value a search widget or query targets, e.g. <c>docs-index</c>.</summary>
+        public string Name { get; set; }
+
+        /// <summary>
+        /// Display name as the admin's "Search indexes" screen shows it, e.g. <c>Docs Index</c>. This
+        /// is the name scheduled-task rows use, and it is never blank — it falls back through the
+        /// publishing point's title and name to the catalog name.
+        /// </summary>
+        public string Title { get; set; }
+
+        /// <summary>
+        /// Where <c>Title</c> came from: <c>PublishingPointTitle</c>, <c>PublishingPointName</c>,
+        /// <c>PipeTitle</c>, <c>PipeUIName</c>, or <c>derived</c> when nothing on the pipe or its point
+        /// named the index in human terms and the title was humanized from the catalog name
+        /// (<c>docs-index</c> to <c>Docs Index</c>). A pipe-type label such as <c>SearchIndexPipe</c>
+        /// is never emitted as a title.
+        /// </summary>
+        public string TitleSource { get; set; }
+
+        /// <summary>Publishing point that owns the index pipe.</summary>
+        public string PublishingPointName { get; set; }
+
+        /// <summary>Publishing provider the point lives under, e.g. <c>SearchPublishingProvider</c>.</summary>
+        public string PublishingProvider { get; set; }
+
+        /// <summary>
+        /// Search provider serving this index, from the pipe's <c>SearchProviderName</c>. Falls back
+        /// to the concrete search service type (decorators unwrapped) when the pipe names none.
+        /// </summary>
+        public string Backend { get; set; }
+
+        /// <summary>Whether both the publishing point and its index pipe are active.</summary>
+        public bool IsActive { get; set; }
+
+        /// <summary>
+        /// Whether the backend reports the index as existing. Null when the search service could not
+        /// be resolved or does not answer the question.
+        /// </summary>
+        public bool? Exists { get; set; }
+
+        /// <summary>
+        /// Number of documents in the index, when the backend exposes a count. Null otherwise —
+        /// the public search API has no portable document-count call.
+        /// </summary>
+        public long? DocumentCount { get; set; }
+
+        /// <summary>ISO 8601 UTC of the last known index update, when obtainable.</summary>
+        public string LastUpdatedUtc { get; set; }
+
+        /// <summary>Server-local wall time of the last known index update, with no zone suffix.</summary>
+        public string LastUpdatedLocal { get; set; }
+
+        /// <summary>Where <c>LastUpdatedUtc</c> came from — <c>IndexFolder</c> or <c>LastPublicationDate</c>.</summary>
+        public string LastUpdatedSource { get; set; }
+
+        /// <summary>Whether a scheduler task is rebuilding this index right now.</summary>
+        public bool IsRebuilding { get; set; }
+
+        /// <summary>The rebuilding task's type, when one was matched.</summary>
+        public string RebuildTaskType { get; set; }
+
+        /// <summary>The rebuilding task's reported progress, when available.</summary>
+        public int? RebuildProgress { get; set; }
+
+        /// <summary>
+        /// Outcome of the most recent reindex task the scheduler still holds for this index:
+        /// <c>running</c>, <c>failed</c>, <c>completed</c>, or <c>unknown</c> when no row survives.
+        /// A <c>failed</c> value is the usual reason a search index has silently gone stale.
+        /// </summary>
+        public string LastReindexStatus { get; set; }
+
+        /// <summary>ISO 8601 UTC the last known reindex ran, when a row records it.</summary>
+        public string LastReindexUtc { get; set; }
+
+        /// <summary>Server-local wall time the last known reindex ran, with NO zone suffix.</summary>
+        public string LastReindexLocal { get; set; }
+
+        /// <summary>
+        /// What feeds this index — the inbound pipes on its publishing point, named by content type
+        /// where the pipe settings expose one. Empty when the publishing point declares none.
+        /// </summary>
+        public List<string> ContentSources { get; set; } = new List<string>();
     }
 }

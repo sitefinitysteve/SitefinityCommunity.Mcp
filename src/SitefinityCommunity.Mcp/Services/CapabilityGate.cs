@@ -56,6 +56,10 @@ public static class CapabilityGate
         // Incident
         ["sitefinity_investigate_incident"] = "Incident",
 
+        // Scheduled tasks + search index diagnostics
+        ["sitefinity_get_scheduled_task_status"] = "Tasks",
+        ["sitefinity_list_search_indexes"] = "Tasks",
+
         // Maintenance (write) — mirrors the plugin's Allow Write Operations flag
         ["sitefinity_clear_cache"] = "Maintenance",
         ["sitefinity_recycle_app"] = "Maintenance",
@@ -74,6 +78,7 @@ public static class CapabilityGate
         ["WhereUsed"] = "Where Used",
         ["Permissions"] = "Permissions",
         ["Incident"] = "Incident",
+        ["Tasks"] = "Scheduled Tasks",
         ["Maintenance"] = "Allow Write Operations",
 
         // Sub-capabilities: not roster entries and never pre-blocked (they gate one endpoint, or one
@@ -110,6 +115,7 @@ public static class CapabilityGate
             "WhereUsed" => roster.WhereUsed,
             "Permissions" => roster.Permissions,
             "Incident" => roster.Incident.Enabled,
+            "Tasks" => roster.Tasks,
             "Maintenance" => roster.Maintenance,
             _ => true
         };

@@ -48,7 +48,9 @@ public sealed class IncidentTools
                  "IIS usernames ARE returned deliberately — they are what makes correlation possible.\n\n" +
                  "Individual sources (IIS, Event Log, HTTPERR) can be switched off by the Sitefinity " +
                  "administrator; a disabled source is skipped and reported in Warnings rather than failing " +
-                 "the call, so always read Warnings before concluding a source was silent.")]
+                 "the call, so always read Warnings before concluding a source was silent.\n\n" +
+                 "For what is running RIGHT NOW (scheduled tasks, search index rebuilds) or has failed, see " +
+                 "sitefinity_get_scheduled_task_status.")]
     public async Task<IncidentResponse> InvestigateIncident(
         [Description("The moment to centre the window on: \"11:00\", \"2026-08-27 11:00\", or full ISO 8601. " +
                      "Without an explicit offset or trailing Z it is read as SERVER-local time. " +

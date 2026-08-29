@@ -31,6 +31,8 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
 - **Auto-Discovery** — New tools are picked up automatically via `[McpServerToolType]` attribute
 - **Incident Investigation** — One tool correlating Sitefinity logs, the IIS access log, the Windows event logs, and HTTPERR across one window, in both UTC and server-local time
+- **Runtime Diagnostics** — What the scheduler is running (or has hung on), which scheduled tasks have **failed**, and the health of every search index including why one has gone stale
+- **Version Handshake** — The server tells you when the site's plugin copy is stale, and prints the exact steps to fix it
 - **Capability Toggles** — Admins switch off any capability (or an individual incident log source) from Sitefinity's admin UI; enforced plugin-side, effective immediately, all enabled by default
 - **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin
 
@@ -279,6 +281,8 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 | `sitefinity_clear_cache` | **Write.** Clear Sitefinity caches (`output`, `whole`, or single `page`) to see widget/template changes fast. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
 | `sitefinity_recycle_app` | **Write.** Recycle the Sitefinity application so code/config/binding changes take effect. Gated by `allowWriteOperations` + admin switch; never permitted for prod-like environments |
 | `sitefinity_investigate_incident` | **The outage tool.** Correlates Sitefinity logs + IIS W3C access logs + Windows Application/System event logs + http.sys HTTPERR across one time window, with every timestamp in both UTC and server-local. Three modes: **discovery** (no args — find candidate crash moments over the last N hours), **window** (`time` — full reconstruction of that moment), **search** (`query` — sweep every source for a substring, e.g. one user's request trail) |
+| `sitefinity_get_scheduled_task_status` | **Is something running or hung right now?** Two sections: **RunningNow** (every genuinely running task — name, item name, start time in both UTC and server-local, `RunningForSeconds`, and whether it's a search index rebuild; a row counts as running only when the scheduler's status is `Started`, because Sitefinity leaves `IsRunning` set on failed and pending rows) and **Failed** (task rows marked `Failed`, newest first, with scheduled/executed times and the failure message). Bounded, status-filtered queries — the task store is never enumerated. Completed history lives in the trace log (`sitefinity_search_logs` for `Scheduler: Task executed`) |
+| `sitefinity_list_search_indexes` | **Why is search stale?** Every configured search index under both names — the catalog name a query targets (`docs-index`) and the display name the admin shows (`Docs Index`) — with its backend, whether it exists, document count where obtainable, last-updated time (both UTC and server-local), whether a rebuild is in flight, and `LastReindexStatus` — `failed` here, cross-referenced from the scheduler's own rows, is usually the whole answer |
 | `sitefinity_list_environments` | Show configured environments |
 | `sitefinity_set_default_environment` | Switch active environment |
 
@@ -402,12 +406,27 @@ A Sitefinity administrator can switch off any capability area independently, in 
 | **Where Used** | `sitefinity_where_used` |
 | **Permissions** | `sitefinity_get_permissions` |
 | **Incident** | `sitefinity_investigate_incident` — plus **Allow IIS Logs** / **Allow Event Logs** / **Allow HTTPERR** for its individual sources, and the **IIS Log Path** override |
+| **Scheduled Tasks** | `sitefinity_get_scheduled_task_status`, `sitefinity_list_search_indexes` |
 
 Cache clear and recycle need no node of their own — the existing **Allow Write Operations** checkbox already gates them.
 
 **Changes apply on the next request — no app pool recycle.** (Unlike the top-level `Enabled` kill switch, which also skips route registration at startup.)
 
 **The plugin enforces this, not the client.** A disabled capability returns **HTTP 403** with a `{ "Disabled": "<name>", "Reason": "…" }` body to *anything* that calls it — this MCP server, curl, a script, anything. As a convenience the MCP server also reads the current state from `/mcp/ping` and refuses a disabled tool up front with "This tool is disabled by the Sitefinity administrator (Admin > Advanced > McpSettings > Forms)", saving a round trip; that check is a shortcut, never the boundary, so a stale cache can't grant access. `/mcp/ping` itself is never blocked — it's how the server learns what's off.
+
+### Plugin Version Handshake
+
+The MCP server and the plugin `.cs` files sitting inside your Sitefinity project are updated by
+completely different commands, so they drift — and a stale plugin shows up as tools mysteriously
+failing with 404s. `/mcp/ping` now reports the plugin's version, so **the server tells you when the
+site's plugin is stale**. Run `sitefinity_check_status` and it prints both versions plus a verdict.
+
+The verdict is never just "out of date" — it carries the fix. A plugin behind the server gets the four
+steps (pull the repo at the matching tag, re-run `install-plugin.ps1 -Target "<your Sitefinity web
+project>"`, rebuild the solution, recycle the app pool). A server behind the plugin gets
+`npm install -g sitefinity-comm-mcp@latest` and a client restart. A plugin from 3.5.0 or earlier
+reports no version at all and is named as such. The same advice appears in the error whenever a plugin
+endpoint answers 404.
 
 ### Secret Redaction
 
@@ -441,7 +460,7 @@ This covers log tools, page/widget properties, form submissions, `list_content`,
 1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
 2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
 
-**Per-capability toggles** — Each capability (Logs, Metadata, Content, Forms, Config Reader, Where Used, Permissions, Incident) has its own `Enabled` checkbox under **McpSettings**, all on by default. The plugin refuses a disabled capability with HTTP 403 on every request regardless of client. See [Capability Toggles](#capability-toggles).
+**Per-capability toggles** — Each capability (Logs, Metadata, Content, Forms, Config Reader, Where Used, Permissions, Incident, Scheduled Tasks) has its own `Enabled` checkbox under **McpSettings**, all on by default. The plugin refuses a disabled capability with HTTP 403 on every request regardless of client. See [Capability Toggles](#capability-toggles).
 
 **Encryption at rest** — The API key in Sitefinity's config is marked with `[SecretData]`, so it's stored encrypted in `McpConfig.config`. Sitefinity decrypts it transparently when the property is read in code.
 

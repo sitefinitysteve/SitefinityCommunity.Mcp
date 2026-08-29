@@ -61,6 +61,8 @@ SitefinityCommunity.Mcp/
     │   │   ├── TaxonomyInfo.cs / TaxonInfo.cs / TaxonomiesResponse.cs ← Classifications
     │   │   ├── FormInfo.cs / FormFieldInfo.cs / FormResponseInfo.cs ← Forms + submissions
     │   │   ├── IncidentWindowResponse.cs ← Incident envelope (window / candidates / search) + all four source sections
+    │   │   ├── ScheduledTaskStatusResponse.cs ← Scheduler snapshot: running + failed tasks (string timestamps)
+    │   │   ├── SearchIndexesResponse.cs ← Search index inventory + freshness + reindex outcome
     │   ├── Services/
     │   │   ├── IEnvironmentResolver.cs    ← Resolves named environments
     │   │   ├── EnvironmentResolver.cs     ← Tracks active default environment
@@ -74,7 +76,9 @@ SitefinityCommunity.Mcp/
     │   │   ├── SitefinityStatusService.cs ← Polls /RestApi/systemstatus
     │   │   ├── ApiKeyValidationService.cs ← Validates API keys via /RestApi/mcp/ping
     │   │   ├── ISitefinityMetadataService.cs ← Interface for metadata operations
-    │   │   └── SitefinityMetadataService.cs  ← HTTP client for metadata endpoints
+    │   │   ├── SitefinityMetadataService.cs  ← HTTP client for metadata endpoints
+    │   │   ├── CapabilityGate.cs          ← Tool -> capability map + admin element names
+    │   │   └── PluginVersionAdvisor.cs    ← Server/plugin version handshake + actionable mismatch messages
     │   ├── Security/
     │   │   └── SecretRedactor.cs      ← Deny-list + pattern scanner for secrets
     │   ├── Tools/                     ← MCP TOOLS (auto-discovered)
@@ -93,6 +97,7 @@ SitefinityCommunity.Mcp/
     │   │   ├── WhereUsedTools.cs      ← where_used (reverse lookup)
     │   │   ├── PermissionTools.cs     ← get_permissions
     │   │   ├── IncidentTools.cs       ← investigate_incident (SF + IIS + EventLog + HTTPERR correlation)
+    │   │   ├── DiagnosticsTools.cs    ← get_scheduled_task_status, list_search_indexes
     │   │   └── MaintenanceTools.cs    ← clear_cache, recycle_app (WRITE; gated)
     │   ├── Resources/                 ← MCP RESOURCES (auto-discovered)
     │   │   └── SitefinityDocsResources.cs ← Widget designer attributes reference
@@ -113,6 +118,7 @@ SitefinityCommunity.Mcp/
         ├── McpWhereUsedService.cs     ← ServiceStack service handler (reverse lookup)
         ├── McpPermissionsService.cs   ← ServiceStack service handler (effective permissions)
         ├── McpSystemLogService.cs     ← ServiceStack service handler (incident window / candidate discovery / cross-source search: SF + IIS + Event Log + HTTPERR)
+        ├── McpTasksService.cs         ← ServiceStack service handlers (scheduler status: running + failed tasks; search index inventory)
         ├── McpMaintenanceService.cs   ← ServiceStack service handlers (clear cache / recycle; WRITE, gated)
         ├── McpSecretRedactor.cs       ← .NET 4.8 mirror of SecretRedactor (scrubs forms/widgets/config)
         └── README.md                  ← Plugin installation guide
@@ -412,6 +418,7 @@ Every capability area can be switched off independently by a Sitefinity administ
 | Where Used | `McpWhereUsedToolElement` | `McpWhereUsedService` |
 | Permissions | `McpPermissionsToolElement` | `McpPermissionsService` |
 | Incident | `McpIncidentToolElement` | `McpSystemLogService` - plus `AllowIisLogs` / `AllowEventLogs` / `AllowHttpErr` and the `IisLogPath` override |
+| Scheduled Tasks | `McpTasksToolElement` | `McpTasksService` - scheduler status and search index diagnostics (capability constant is `Tasks`; the admin element title is **Scheduled Tasks**) |
 
 Maintenance needs no element - `AllowWriteOperations` already gates it, and the roster reports it as `Maintenance` so the same pre-block message applies.
 
@@ -429,6 +436,30 @@ Maintenance needs no element - `AllowWriteOperations` already gates it, and the 
 **Element design rules.** Every capability gets its **own named class** deriving from the abstract `McpToolElement` base (which carries only `Enabled`), even when it adds nothing today - that gives each tool a natural home for a future setting without a config migration. Granularity follows the **plugin service boundary**: tools backed by one service (the log trio, the metadata family) share one element; don't split finer. Keep the number of settings small - `Enabled` only, unless a tool has a genuine knob (`Incident`'s three source flags and `IisLogPath` are the proof case).
 
 **Incident source flags degrade, they don't fail.** When `Incident.Enabled` is false the endpoint 403s like any other capability. When it's on but a source flag is off, that source is skipped and a `Warnings` entry is added ("IIS source disabled by administrator (McpSettings > Incident > Allow IIS Logs).") - the same shape as the existing ACL-denied warnings. `ParseSources` applies the flags for window and search modes; `RunDiscovery` applies them directly because it bypasses `ParseSources`.
+
+### Plugin Version Handshake
+
+The MCP server and the plugin sources living inside the customer's Sitefinity project are updated by
+completely different commands, so they drift. `GET /mcp/ping` therefore reports `PluginVersion` (from
+`McpPluginInfo.Version` in `McpServicePlugin.cs`), `ApiKeyValidationService` caches it alongside the
+capability roster on the same ping, and `PluginVersionAdvisor` turns the comparison into a verdict.
+
+`sitefinity_check_status` prints both versions plus that verdict, and a 404 from any plugin route is
+mapped to the same advice naming both versions.
+
+**Never say only "out of date".** Every mismatch message carries the exact fix:
+
+- **Plugin older** — pull the repo at tag `vX.Y.Z`, run `install-plugin.ps1 -Target "<Sitefinity web project>"`, rebuild the Sitefinity solution, recycle the app pool. New endpoints 404 until then.
+- **Server older** — `npm install -g sitefinity-comm-mcp@latest` (or bump the pinned version in the MCP client config), then restart the MCP client/session.
+- **No version reported** — the plugin is 3.5.0 or earlier (it predates version reporting); the same plugin-update steps apply if tools 404.
+- **Match** — one line.
+
+`PluginVersionAdvisor.Compare` ignores pre-release suffixes and treats unparsable input as equal, so a
+malformed version can never produce a false "out of date" claim.
+
+**The version lives in FOUR places and they must agree**: the csproj `<Version>`, `npm/package.json`,
+`McpPluginInfo.Version`, and the `CHANGELOG.md` heading. A stale constant makes a current plugin look
+out of date.
 
 ### Write Operations (Cache Clear / Recycle)
 
@@ -449,7 +480,7 @@ Both must opt in. Cache APIs vary across Sitefinity versions, so `McpMaintenance
 | `LogParsingService` | (concrete) | Parse Sitefinity log format into structured entries |
 | `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped; `WaitForReadyAsync` polls until ready or timeout |
 | `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint; caches the per-capability feature roster (`GetFeaturesAsync`) |
-| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions, incident windows; clear cache / recycle |
+| `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions, incident windows, scheduler status, search indexes; clear cache / recycle |
 | `IHttpClientFactory` | (framework) | Create HTTP clients for remote calls |
 | `SitefinityMcpConfig` | (concrete) | Loaded config singleton |
 
@@ -459,7 +490,7 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok", features: { … } }`. The `features` roster reports each capability's Enabled state (plus `Maintenance` = Allow Write Operations, and Incident's three source flags). **Never capability-gated** — it is how the MCP server learns what is off |
+| `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok", pluginVersion: "3.6.0", features: { … } }`. `pluginVersion` comes from `McpPluginInfo.Version` and drives the version handshake (absent on builds before 3.6.0). The `features` roster reports each capability's Enabled state (plus `Maintenance` = Allow Write Operations, and Incident's three source flags). **Never capability-gated** — it is how the MCP server learns what is off |
 | `/mcp/logs` | GET | List all log files with metadata |
 | `/mcp/logs/{FileName}` | GET | Read a log file (optional `MaxLines` query param) |
 | `/mcp/logs/search` | POST | Search logs with a regex pattern. Searches `*.log` files **newest-first** and stops after `MaxMatches` hits (default 200, max 1000) so large prod log sets don't time the client out. Optional `FileName` restricts the search to a single file (e.g. `Error.log`). Streams each file line-by-line — flat memory regardless of file size |
@@ -487,6 +518,8 @@ All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribu
 | `/mcp/where-used` | GET | Reverse lookup: every page/template referencing a widget type, content item, or template (requires `Query`; optional `Kind`=widget\|content\|template) |
 | `/mcp/permissions` | GET | Effective per-role granted/denied actions on a page or content item, and whether it inherits (requires `Identifier`; optional `TypeFullName` for a content item) |
 | `/mcp/incident-window` | GET | Incident forensics across four sources — Sitefinity logs (server-local timestamps), the IIS W3C access log (always UTC), the Windows Application + System event logs (UTC; Security never read), and HTTPERR (always UTC). **Three modes**: `Center` set → correlated window (`WindowMinutes`, default 15, clamp 1–120); `Query` set with no `Center` → search across `LookbackHours` (default 72, clamp 1–336); neither → clustered candidate crash moments over `LookbackHours` (IIS deliberately NOT scanned — too large over multi-day ranges). Optional `Sources` (`sitefinity,iis,eventlog,httperr`). Every entry carries `TimestampUtc` + `TimestampLocal`; the response reports `ServerTimeZoneId` and the offset **at the queried instant** (DST-correct). Raw IIS lines are never returned — aggregates plus capped lists only. Bounded by fixed caps, a 2M-line ceiling, and a 30s wall-clock budget (synchronous; no background jobs). `cs(Cookie)` / `cs(Authorization)` are never read; `cs-username` and `c-ip` are deliberately retained |
+| `/mcp/scheduled-tasks` | GET | Scheduler snapshot in exactly two sections: **RunningNow** (`Name` = the task's CLR type as the admin shows it, item name, `StartedUtc`/`StartedLocal`, `StartedSource`, `RunningForSeconds`, `IsSearchIndexRebuild` + `IndexName`, progress; cap 25). **A row counts as running only when `IsRunning` AND its scheduler status is `Started`** — `IsRunning` alone stays set on failed and pending rows, which otherwise appear as months-long "running" tasks and double-list with Failed. When the status can't be read the list is emptied rather than guessed and **Failed** (rows whose status is `Failed`, newest execution first — `ScheduledForUtc`/`Local`, `ExecutedOnUtc`/`Local`, status message; cap 10). Both are bounded, status-filtered queries — the scheduled-task store is **never** enumerated. Successfully completed rows are not returned (the scheduler deletes them); `HistoryNote` points at `sitefinity_search_logs` with the pattern `Scheduler: Task executed` |
+| `/mcp/search-indexes` | GET | Every configured search index (a search-index pipe on a publishing point) — **not capped**, sites have a handful. Per index: catalog `Name` (`docs-index`), display `Title` (`Docs Index`) + `TitleSource`, `PublishingPointName`, `PublishingProvider`, `Backend`, `IsActive`, `Exists`, `DocumentCount` (null when the backend exposes no portable count), `LastUpdatedUtc`/`Local` + `LastUpdatedSource` (`IndexFolder` for file-backed backends, else `LastPublicationDate`), `IsRebuilding` + `RebuildProgress`, `LastReindexStatus` (`running`/`failed`/`completed`/`unknown`) + `LastReindexUtc`/`Local` cross-referenced against the scheduler's own rows — **matched on a normalized name**, because a task row names an index the way the admin does (`Docs Index`) while the pipe names it the way a query does (`docs-index`), so a literal comparison matches nothing — and `ContentSources`. Anything unobtainable produces a **per-index** `Warnings` entry rather than a guess. `Title` never carries a pipe-type label (the pipe's `UIName` is `SearchIndexPipe` on some versions) — the publishing point's title/name is preferred, and the title is otherwise **derived** from the catalog name (`docs-index` to `Docs Index`) with `TitleSource: "derived"`. When Sitefinity's search-service decorators hide the concrete backend, `Backend` and `DocumentCount` report **null** with one response-level warning rather than the wrapper's type name, folder freshness is skipped, and last-updated falls back to the publishing point's last publication date. **Search indexes live under their own publishing provider** (`PublishingConfig.SearchProviderName` = `SearchPublishingProvider`), *not* the default `OAPublishingProvider` that `PublishingManager.GetManager()` opens — every configured provider is queried and `ProvidersScanned` reports which |
 | `/mcp/cache/clear` | POST | **Write.** Clear cache: `Scope`=output\|whole\|page (`PageIdentifier` required for page). Refused (403) unless `AllowWriteOperations` is enabled in admin |
 | `/mcp/app/recycle` | POST | **Write.** Restart the Sitefinity application (`SystemManager.RestartApplication`). Refused (403) unless `AllowWriteOperations` is enabled in admin |
 

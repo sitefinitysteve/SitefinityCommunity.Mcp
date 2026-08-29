@@ -9,6 +9,12 @@ public sealed class PingResponse
     public string? Status { get; set; }
 
     /// <summary>
+    /// Version of the plugin sources installed in the Sitefinity project. Plugin builds before 3.6.0
+    /// omit this — a null value means "3.5.0 or earlier", not "unknown site".
+    /// </summary>
+    public string? PluginVersion { get; set; }
+
+    /// <summary>
     /// Per-capability roster. Plugin builds before 3.5.0 omit this — a null roster means
     /// "everything enabled", which is what those builds actually do.
     /// </summary>
@@ -50,6 +56,9 @@ public sealed class FeatureRoster
 
     /// <summary>Effective permissions reader.</summary>
     public bool Permissions { get; set; } = true;
+
+    /// <summary>Scheduled-task status and search index diagnostics.</summary>
+    public bool Tasks { get; set; } = true;
 
     /// <summary>Cache clear / application recycle. Mirrors the plugin's Allow Write Operations flag.</summary>
     public bool Maintenance { get; set; } = true;

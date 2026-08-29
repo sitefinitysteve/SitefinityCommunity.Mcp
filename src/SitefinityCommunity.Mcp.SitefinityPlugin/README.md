@@ -47,6 +47,7 @@ SitefinityWebApp/
 │           ├── McpWhereUsedService.cs
 │           ├── McpPermissionsService.cs
 │           ├── McpSystemLogService.cs
+│           ├── McpTasksService.cs
 │           └── McpMaintenanceService.cs
 ├── Global.asax.cs
 └── ...
@@ -63,6 +64,13 @@ SitefinityCommunity.Mcp.SitefinityPlugin.McpInit.Register();
 ```
 
 That's it — this registers the config section and all ServiceStack endpoints.
+
+> **Keep the plugin in step with the MCP server.** `/mcp/ping` reports this plugin drop's version
+> (`McpPluginInfo.Version` in `McpServicePlugin.cs`), and `sitefinity_check_status` compares it with the
+> MCP server's own version and prints the fix when they differ. After upgrading the MCP server, re-run
+> `install-plugin.ps1 -Target "<your Sitefinity web project>"` from the matching repo tag — it copies
+> the `.cs` files **and registers any new ones in the `.csproj`** — then rebuild the solution and
+> recycle the app pool. New endpoints answer 404 until you do.
 
 ### 3. Configure API key in Sitefinity admin
 
@@ -85,6 +93,7 @@ Under **McpSettings** each capability is its own expandable node with an **Enabl
 | **Where Used** | `/mcp/where-used` |
 | **Permissions** | `/mcp/permissions` |
 | **Incident** | `/mcp/incident-window` |
+| **Scheduled Tasks** | `/mcp/scheduled-tasks`, `/mcp/search-indexes` |
 
 A disabled capability returns **HTTP 403** with `{ "Disabled": "<name>", "Reason": "…" }`. The change takes effect on the next request — **no app pool recycle needed**. `/mcp/ping` is never blocked: it reports the current on/off state so the MCP server can tell the user which tools are unavailable and why.
 
@@ -168,6 +177,8 @@ Should return a JSON array of log files.
 | `/mcp/where-used?Query={x}` | GET | Reverse lookup of a widget type / content item / template across pages and templates |
 | `/mcp/permissions?Identifier={x}` | GET | Effective per-role permissions on a page (or content item via `TypeFullName`) |
 | `/mcp/incident-window` | GET | Incident forensics across Sitefinity logs, the IIS W3C access log, the Windows Application + System event logs, and HTTPERR. Three modes: `Center` → correlated window (`WindowMinutes`, default 15, max 120); `Query` only → search over `LookbackHours` (default 72, max 336); neither → candidate crash moments over `LookbackHours`. Optional `Sources` (`sitefinity,iis,eventlog,httperr`). See the prerequisites below |
+| `/mcp/scheduled-tasks` | GET | Scheduler snapshot: **RunningNow** (genuinely running tasks — `Name`, item name, `StartedUtc`/`StartedLocal`, `RunningForSeconds`, `IsSearchIndexRebuild` + `IndexName`, progress; cap 25; a row must have `IsRunning` **and** scheduler status `Started`, since `IsRunning` alone stays set on failed and pending rows) and **Failed** (rows whose status is `Failed`, newest first — `ScheduledForUtc`/`Local`, `ExecutedOnUtc`/`Local`, status message; cap 10). Both are bounded status-filtered queries — the scheduled-task store is never enumerated, and successfully completed rows are not returned (the scheduler deletes them) |
+| `/mcp/search-indexes` | GET | Every configured search index (a search-index pipe on a publishing point), uncapped. Per index: catalog name (`docs-index`) **and display name** (`Docs Index`), owning publishing point **and provider**, backend, whether it exists, document count where the backend exposes one, `LastUpdatedUtc`/`Local`, rebuild state, and `LastReindexStatus` (`running`/`failed`/`completed`/`unknown`) cross-referenced from the scheduler's own rows. Anything unobtainable is reported per index in `Warnings`; a `Title` is never a pipe-type label (it falls back to the publishing point's name, then a title derived from the catalog name, with `TitleSource` saying which), and a backend hidden behind Sitefinity's search-service decorators yields `Backend`/`DocumentCount` of **null** plus one response-level warning rather than the wrapper's type name. Indexes live under the `SearchPublishingProvider` publishing provider, not the default one — every configured provider is queried and `ProvidersScanned` names them |
 | `/mcp/cache/clear` | POST | **Write** — clear cache (`Scope`=output\|whole\|page). Requires "Allow Write Operations" |
 | `/mcp/app/recycle` | POST | **Write** — restart the application. Requires "Allow Write Operations" |
 

@@ -43,6 +43,12 @@ public interface IApiKeyValidationService
     Task<FeatureRoster?> GetFeaturesAsync(string? environmentName = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns the plugin version reported on the last successful ping, or <c>null</c> when the site
+    /// is unreachable or the installed plugin predates version reporting (any build before 3.6.0).
+    /// </summary>
+    Task<string?> GetPluginVersionAsync(string? environmentName = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Removes the cached validation result for the given environment (or default).
     /// Call this when a data request fails with HTML, indicating Sitefinity restarted
     /// and the previously cached "Valid" result is stale.
@@ -60,7 +66,7 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
     private readonly IEnvironmentResolver _resolver;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ApiKeyValidationService> _logger;
-    private readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, FeatureRoster? Features, DateTime ExpiresAt)> _cache = new();
+    private readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, FeatureRoster? Features, string? PluginVersion, DateTime ExpiresAt)> _cache = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan UnreachableCacheDuration = TimeSpan.FromSeconds(15);
 
@@ -84,10 +90,10 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
             return cached.Result;
         }
 
-        var (result, features) = await PingAsync(config, ct);
+        var (result, ping) = await PingAsync(config, ct);
 
         var ttl = result == ApiKeyValidationResult.Unreachable ? UnreachableCacheDuration : CacheDuration;
-        this._cache[name] = (result, features, DateTime.UtcNow.Add(ttl));
+        this._cache[name] = (result, ping?.Features, ping?.PluginVersion, DateTime.UtcNow.Add(ttl));
 
         return result;
     }
@@ -103,13 +109,24 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
         return this._cache.TryGetValue(name, out var cached) ? cached.Features : null;
     }
 
+    public async Task<string?> GetPluginVersionAsync(string? environmentName = null, CancellationToken ct = default)
+    {
+        // Shares the validation cache, so the version handshake costs nothing beyond the ping the tool
+        // filter already performs.
+        await this.ValidateAsync(environmentName, ct);
+
+        var (name, _) = this._resolver.Resolve(environmentName);
+
+        return this._cache.TryGetValue(name, out var cached) ? cached.PluginVersion : null;
+    }
+
     public void InvalidateCache(string? environmentName = null)
     {
         var (name, _) = this._resolver.Resolve(environmentName);
         this._cache.TryRemove(name, out _);
     }
 
-    private async Task<(ApiKeyValidationResult Result, FeatureRoster? Features)> PingAsync(
+    private async Task<(ApiKeyValidationResult Result, PingResponse? Ping)> PingAsync(
         EnvironmentConfig config, CancellationToken ct)
     {
         try
@@ -132,7 +149,7 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
                 }
 
                 this._logger.LogDebug("API key validated for {Url}", config.Url);
-                return (ApiKeyValidationResult.Valid, await ReadFeaturesAsync(response, config, ct));
+                return (ApiKeyValidationResult.Valid, await ReadPingAsync(response, config, ct));
             }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -158,16 +175,16 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
     }
 
     /// <summary>
-    /// Reads the per-capability roster out of a successful ping. Plugin builds before 3.5.0 omit it;
-    /// a missing or unparsable roster returns null, which every caller treats as "all enabled".
+    /// Reads the capability roster and the plugin version out of a successful ping. Plugin builds
+    /// before 3.5.0 omit the roster and builds before 3.6.0 omit the version; a missing or unparsable
+    /// body returns null, which every caller treats as "all enabled, version unknown".
     /// </summary>
-    private async Task<FeatureRoster?> ReadFeaturesAsync(
+    private async Task<PingResponse?> ReadPingAsync(
         HttpResponseMessage response, EnvironmentConfig config, CancellationToken ct)
     {
         try
         {
-            var ping = await response.Content.ReadFromJsonAsync<PingResponse>(SitefinityJsonOptions.Default, ct);
-            return ping?.Features;
+            return await response.Content.ReadFromJsonAsync<PingResponse>(SitefinityJsonOptions.Default, ct);
         }
         catch (Exception ex)
         {
