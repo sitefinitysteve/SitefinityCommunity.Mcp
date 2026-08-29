@@ -20,6 +20,9 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Site Info** — Sitefinity version, .NET version, project name, configured languages, multisite info
 - **Module Inspector** — List all installed modules with type, status, and startup type
 - **Content Model** — Browse Module Builder dynamic types and their field definitions
+- **Live Content** — Query live content items of any type, list page templates, and browse classifications with their taxa
+- **Forms & Submissions** — List forms, inspect field definitions, and page through submissions — with admin-side privacy controls (definitions-only mode, and excluded fields that are stripped before redaction and search so they can never leak)
+- **Settings Search** — Full-text search across every Advanced Settings screen via the backend Lucene index
 - **Page Inspector** — List all CMS page routes (via Sitemap API for performance), get full page details including template name, all widgets, and their configured properties
 - **Route Discovery** — Browse CMS page routes with URL evaluation warnings, ServiceStack API routes, and OData entity sets
 - **Config Reader** — List and dump Sitefinity configuration sections (credential-like values always redacted)
@@ -34,7 +37,10 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Runtime Diagnostics** — What the scheduler is running (or has hung on), which scheduled tasks have **failed**, and the health of every search index including why one has gone stale
 - **Version Handshake** — The server tells you when the site's plugin copy is stale, and prints the exact steps to fix it
 - **Capability Toggles** — Admins switch off any capability (or an individual incident log source) from Sitefinity's admin UI; enforced plugin-side, effective immediately, all enabled by default
-- **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin
+- **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin, compared in constant time
+- **Secret Redaction** — Everything returned to the LLM is scrubbed by mirrored deny-list + token-pattern redactors on both sides — unconditional, in every environment, with no opt-out
+- **Brute-Force Throttle** — 10 failed auth attempts from an IP inside 5 minutes freezes it for 15 (HTTP 429); a valid key always unfreezes, so the real server can never be locked out
+- **Request Audit Log** — Every MCP request (accepted or rejected) lands in `McpAudit.log` with both IP perspectives, redacted query, and fingerprints of rejected keys — never valid-key material; the trail is itself readable through the log tools
 
 ## Installation
 
