@@ -195,6 +195,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public McpFormResponsesResponse Get(ListFormResponses request)
         {
             McpCapabilities.EnsureEnabled(McpCapabilities.Forms);
+            McpCapabilities.EnsureFormResponsesAllowed();
 
             if (string.IsNullOrWhiteSpace(request.FormIdentifier))
             {
@@ -225,9 +226,17 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             try
             {
+                // Fields the administrator has excluded (Forms > Excluded Fields). Dropping them from
+                // the name list here means the value is never read, never redacted, and never lands in
+                // Values — so it cannot be returned OR matched by SearchTerm. Same oracle rule as
+                // redaction: a hidden value must not be discoverable by searching for it.
+                var excludedFields = McpCapabilities.GetExcludedFormFields();
+
                 // Resolve the list of developer field-names ONCE — it's the same for every entry
                 // on this form, and extracting it per-entry was the old code's main cost.
                 var fieldNames = new List<string>();
+                var excludedHits = new List<string>();
+
                 if (form.Controls != null)
                 {
                     foreach (var control in form.Controls)
@@ -237,11 +246,30 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                             "MetaField.FieldName",
                             "Name");
 
-                        if (!string.IsNullOrEmpty(fn) && !fieldNames.Contains(fn))
+                        if (string.IsNullOrEmpty(fn) || fieldNames.Contains(fn))
                         {
-                            fieldNames.Add(fn);
+                            continue;
                         }
+
+                        if (excludedFields.Contains(fn))
+                        {
+                            if (!excludedHits.Contains(fn))
+                            {
+                                excludedHits.Add(fn);
+                            }
+
+                            continue;
+                        }
+
+                        fieldNames.Add(fn);
                     }
+                }
+
+                if (excludedHits.Count > 0)
+                {
+                    response.Warnings.Add("Excluded by administrator (McpSettings > Forms > Excluded Fields): " +
+                        string.Join(", ", excludedHits.ToArray()) +
+                        ". These fields are omitted from every entry and are not searchable.");
                 }
 
                 // Order newest-first so Skip/Take pagination is deterministic. DateCreated alone is

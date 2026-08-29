@@ -397,8 +397,8 @@ A Sitefinity administrator can switch off any capability area independently, in 
 | **Logs** | `sitefinity_read_log_file`, `sitefinity_search_logs`, `sitefinity_list_log_files` (remote mode; a `logsPath` environment still reads the filesystem locally) |
 | **Metadata** | Site info, modules, dynamic types, routes, page details, widget properties, widget tree, templates, taxonomies |
 | **Content** | `sitefinity_list_content` |
-| **Forms** | `sitefinity_list_forms`, `sitefinity_get_form_fields`, `sitefinity_list_form_responses` |
-| **Config Reader** | `sitefinity_list_config_sections`, `sitefinity_get_config_section`, `sitefinity_search_settings` |
+| **Forms** | `sitefinity_list_forms`, `sitefinity_get_form_fields`, `sitefinity_list_form_responses` — plus **Allow Responses** (keep definitions readable, block submissions) and **Excluded Fields** (strip named fields from every submission) |
+| **Config Reader** | `sitefinity_list_config_sections`, `sitefinity_get_config_section`, `sitefinity_search_settings` — plus **Excluded Sections**, which hides named sections (`*` wildcards supported) from the list, direct reads, and settings search |
 | **Where Used** | `sitefinity_where_used` |
 | **Permissions** | `sitefinity_get_permissions` |
 | **Incident** | `sitefinity_investigate_incident` — plus **Allow IIS Logs** / **Allow Event Logs** / **Allow HTTPERR** for its individual sources, and the **IIS Log Path** override |
@@ -428,6 +428,8 @@ This covers log tools, page/widget properties, form submissions, `list_content`,
 - `cs(Cookie)` and `cs(Authorization)` are **never read at all** — not read-then-redacted. A redacted credential is still a credential-shaped string sitting in a context window.
 - Raw IIS log lines are never returned; only aggregates and capped, redacted lists.
 
+**Admins can hide specific data outright**, beyond what the redactor catches: **Forms > Excluded Fields** strips named form fields (`SSN, HealthCard`) from every submission, and **Config Reader > Excluded Sections** hides whole config sections (`*` wildcards supported) from the section list, direct reads, and settings search. Both are removed server-side *before* redaction and *before* any search term is matched, so — like redaction — they can't be discovered by searching for their values. **Forms > Allow Responses** goes further: uncheck it and form definitions stay readable while submissions are refused entirely.
+
 **One deliberate exception:** `cs-username` and client IPs (`c-ip`) **are** returned. Correlating an outage to who was hitting what is the entire point of the tool, and they aren't credentials. If that's not acceptable for your site, uncheck **Allow IIS Logs** under Admin > Advanced > McpSettings > Incident.
 
 ---
@@ -447,6 +449,43 @@ This covers log tools, page/widget properties, form submissions, `list_content`,
 - MCP server config validation (`IsNullOrWhiteSpace`) — server won't start
 - Sitefinity startup (`McpInit.Register`) — plugin won't register endpoints
 - Sitefinity request filter (`McpApiKeyAttribute`) — requests blocked at runtime
+
+**Brute-force throttle** — Ten failed authentication attempts from one IP inside a five-minute window freeze that IP for fifteen minutes, answered with HTTP 429 and a `Retry-After` header. Missing keys count as failures (they're probes). A **correct key always wins**: it is checked before the freeze is enforced, so it unfreezes the IP and resets the counter — nobody can lock out your MCP server by spraying bad keys from the same egress address. The bucket is the direct connection IP; `X-Forwarded-For` is deliberately ignored, since trusting it would let one client evade the throttle by rotating a header. The whole path fails open — a throttle bug degrades to a plain 401, never a 500.
+
+**Constant-time key comparison** — The presented key is compared to the configured one over the full length of both, accumulating inequality instead of returning at the first mismatch, so response timing can't be used to recover the key a character at a time.
+
+In fairness: a key from `generate-key` is 256 bits of `RandomNumberGenerator` output, so it is not realistically brute-forcible over HTTP with or without these measures. They exist for the cases that actually happen — a short or hand-typed key, a key reused from somewhere else, credential-stuffing noise — and to keep an unauthenticated endpoint from being a free oracle.
+
+### Request Audit Log
+
+<a id="request-audit-log"></a>
+
+Every MCP request — accepted **or** rejected — appends one line to `App_Data\Sitefinity\Logs\McpAudit.log`. It's **on by default**; turn it off with **Audit Requests** in Sitefinity Admin > Advanced > McpSettings.
+
+```
+2026-08-28T20:41:07Z | ip=203.0.113.9 | xff=- | GET /mcp/forms | Take=25 | auth=valid
+2026-08-28T20:41:09Z | ip=198.51.100.4 | xff=- | GET /mcp/logs | | auth=invalid-key attempted: len=25 prefix=PROD-K sha256=e6d28673f272
+2026-08-28T20:41:11Z | ip=198.51.100.4 | xff=- | GET /mcp/config | | auth=missing-key
+2026-08-28T20:43:22Z | ip=198.51.100.4 | xff=- | GET /mcp/logs | | auth=throttled
+```
+
+**Requests only — never results.** It answers "who called what, from where, and did they get in", not "what data came back".
+
+**The two IP fields.** `ip=` is the direct TCP connection address: trustworthy, and what the throttle keys on. `xff=` is the `X-Forwarded-For` header verbatim, or `-` when absent. If your site is directly exposed, **block on `ip=`**. Behind a proxy, load balancer or Cloudflare, `ip=` will be the proxy, so use `xff=` as your lead — but verify it against your proxy's own logs before acting, because the header is caller-supplied and can be forged.
+
+**Rejected keys are fingerprinted, not recorded.** An `invalid-key` line carries `len=`, a 6-character `prefix=`, and the first 12 hex of the key's SHA-256. To identify a mystery key, hash your known keys and compare:
+
+```bash
+printf '%s' "$SOME_KEY" | openssl dgst -sha256 | cut -c1-12   # compare with sha256= in the log
+```
+
+That's usually enough to spot a stale key from a rotation or a prod key aimed at dev. It's also exactly *why* raw keys are never logged: the invalid keys that show up in practice are nearly-valid ones, so writing them verbatim would turn the audit file into a store of live credentials. **A valid key is never fingerprinted at all** — no prefix, no hash, nothing.
+
+**Everything else is scrubbed too.** Query strings run through the same per-parameter deny-list and pattern scanner as the rest of the server, so `?token=…` lands as `token=[REDACTED]`. Newlines and pipes are stripped from every field so a crafted URL can't forge log lines.
+
+**Operationally boring on purpose.** The file rolls at 10 MB (`McpAudit.1.log` … `McpAudit.3.log`, oldest dropped). The whole path fails open: a locked file, a full disk or a missing Logs folder silently disables auditing rather than affecting the request.
+
+**And the audit trail is itself MCP-inspectable** — it lives in the standard Sitefinity Logs folder, so you can just ask: *"search the MCP audit log for invalid-key attempts today"* and `sitefinity_search_logs` / `sitefinity_read_log_file("McpAudit.log")` will read it like any other log.
 
 **Write operations are double-gated** — The two state-changing tools (`sitefinity_clear_cache`, `sitefinity_recycle_app`) require **both** `"allowWriteOperations": true` in the per-environment config *and* the **Allow Write Operations** admin switch (default off). The server refuses before any network call when its flag is off; the plugin returns HTTP 403 when its switch is off. Prod-like environment names can never write, regardless of either flag.
 

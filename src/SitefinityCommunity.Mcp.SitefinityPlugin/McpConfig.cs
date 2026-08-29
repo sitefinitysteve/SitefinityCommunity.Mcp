@@ -4,8 +4,11 @@
 // Register in Global.asax: McpInit.Register();
 // ============================================================================
 
+using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Net;
+using System.Text.RegularExpressions;
 using ServiceStack;
 using Telerik.Sitefinity.Configuration;
 using Telerik.Sitefinity.Localization;
@@ -41,6 +44,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         {
             get { return (bool)this["AllowWriteOperations"]; }
             set { this["AllowWriteOperations"] = value; }
+        }
+
+        [ObjectInfo(Title = "Audit Requests", Description = "Append every MCP request — including rejected ones — as one line to App_Data\\Sitefinity\\Logs\\McpAudit.log: who called what, from where, and whether authentication passed. Requests only; results are never logged, and query strings are secret-redacted. The file lives in the standard Sitefinity Logs folder, so the MCP's own log tools can read it.")]
+        [ConfigurationProperty("AuditRequests", DefaultValue = true)]
+        public bool AuditRequests
+        {
+            get { return (bool)this["AuditRequests"]; }
+            set { this["AuditRequests"] = value; }
         }
 
         // ── Per-capability toggles ───────────────────────────────────
@@ -205,6 +216,22 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             get { return (bool)this["Enabled"]; }
             set { this["Enabled"] = value; }
         }
+
+        [ObjectInfo(Title = "Allow Responses", Description = "Permit reading form submissions. When unchecked, form DEFINITIONS stay readable (list forms, inspect fields) but the responses endpoint is refused with HTTP 403 — so an assistant can still reason about a form's shape without ever seeing what people submitted.")]
+        [ConfigurationProperty("AllowResponses", DefaultValue = true)]
+        public bool AllowResponses
+        {
+            get { return (bool)this["AllowResponses"]; }
+            set { this["AllowResponses"] = value; }
+        }
+
+        [ObjectInfo(Title = "Excluded Fields", Description = "Comma-separated form field names that are stripped from submissions and never returned (e.g. \"SSN, HealthCard\"). Matching is case-insensitive on the exact field name. Excluded fields are removed before redaction and before any search term is matched, so they cannot be discovered by searching for their values.")]
+        [ConfigurationProperty("ExcludedFields", DefaultValue = "")]
+        public string ExcludedFields
+        {
+            get { return (string)this["ExcludedFields"]; }
+            set { this["ExcludedFields"] = value; }
+        }
     }
 
     /// <summary>
@@ -223,6 +250,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         {
             get { return (bool)this["Enabled"]; }
             set { this["Enabled"] = value; }
+        }
+
+        [ObjectInfo(Title = "Excluded Sections", Description = "Comma-separated configuration section names hidden from the MCP entirely: omitted from the section list, refused with HTTP 403 when requested directly, and stripped from advanced-settings search results. A \"Config\" or \".config\" suffix is optional — \"Authentication\" also matches \"AuthenticationConfig\" and \"Authentication.config\". Supports * wildcards: \"Auth*\" hides everything starting with Auth, \"*Security*\" everything containing Security.")]
+        [ConfigurationProperty("ExcludedSections", DefaultValue = "")]
+        public string ExcludedSections
+        {
+            get { return (string)this["ExcludedSections"]; }
+            set { this["ExcludedSections"] = value; }
         }
     }
 
@@ -360,6 +395,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public const string Incident = "Incident";
 
         /// <summary>
+        /// Form submissions specifically. A sub-capability of <see cref="Forms"/>: form definitions
+        /// stay readable when this is off. Deliberately NOT in the ping roster — it gates one
+        /// endpoint, not a tool group, so the plugin's 403 is the only enforcement point.
+        /// </summary>
+        public const string FormsResponses = "FormsResponses";
+
+        /// <summary>
+        /// A single configuration section hidden by name. Reported as the <c>Disabled</c> value on the
+        /// 403 from <c>/mcp/config/{SectionName}</c>. Not a roster entry — it gates individual
+        /// sections, not the Config Reader capability as a whole.
+        /// </summary>
+        public const string ConfigSection = "ConfigSection";
+
+        /// <summary>
         /// Shown to the administrator (and forwarded to the MCP client) when a capability is off.
         /// </summary>
         public const string DisabledReason =
@@ -436,6 +485,267 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             throw new HttpError(body, HttpStatusCode.Forbidden, "CapabilityDisabled",
                 "The '" + capability + "' capability is disabled. " + DisabledReason);
+        }
+
+        /// <summary>
+        /// Throws an HTTP 403 when form submissions are switched off (Forms &gt; Allow Responses).
+        /// Call this in the responses handler only — form definitions stay readable.
+        /// </summary>
+        public static void EnsureFormResponsesAllowed()
+        {
+            var config = TryGetConfig();
+
+            if (config == null)
+            {
+                return;
+            }
+
+            bool allowed;
+
+            try
+            {
+                allowed = config.Forms.AllowResponses;
+            }
+            catch
+            {
+                // Fail open, same as every other capability read.
+                return;
+            }
+
+            if (allowed)
+            {
+                return;
+            }
+
+            var body = new McpCapabilityDisabledResponse
+            {
+                Disabled = FormsResponses,
+                Reason = DisabledReason,
+            };
+
+            throw new HttpError(body, HttpStatusCode.Forbidden, "CapabilityDisabled",
+                "Form responses are disabled. " + DisabledReason +
+                " Form definitions remain available.");
+        }
+
+        /// <summary>
+        /// Field names an administrator has excluded from form submissions
+        /// (Forms &gt; Excluded Fields). Comma-separated, trimmed, compared case-insensitively
+        /// against the exact field name. Returns an empty set when unset or unreadable.
+        /// </summary>
+        public static HashSet<string> GetExcludedFormFields()
+        {
+            var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var config = TryGetConfig();
+
+            if (config == null)
+            {
+                return excluded;
+            }
+
+            string raw;
+
+            try
+            {
+                raw = config.Forms.ExcludedFields;
+            }
+            catch
+            {
+                return excluded;
+            }
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return excluded;
+            }
+
+            foreach (var token in raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var name = token.Trim();
+
+                if (name.Length > 0)
+                {
+                    excluded.Add(name);
+                }
+            }
+
+            return excluded;
+        }
+
+        /// <summary>
+        /// Configuration section names an administrator has hidden
+        /// (Config Reader &gt; Excluded Sections). Compare with <see cref="IsSectionExcluded"/>,
+        /// which handles the optional Config / .config suffix and <c>*</c> wildcards.
+        /// Returns an empty list when unset or unreadable.
+        /// <para>
+        /// Plain tokens are suffix-stripped here so they compare exactly. Wildcard tokens are only
+        /// trimmed and lower-cased — stripping <c>config</c> off <c>*config*</c> would change what the
+        /// pattern means.
+        /// </para>
+        /// </summary>
+        public static List<string> GetExcludedConfigSections()
+        {
+            var tokens = new List<string>();
+            var config = TryGetConfig();
+
+            if (config == null)
+            {
+                return tokens;
+            }
+
+            string raw;
+
+            try
+            {
+                raw = config.ConfigReader.ExcludedSections;
+            }
+            catch
+            {
+                return tokens;
+            }
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return tokens;
+            }
+
+            foreach (var token in raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var name = token.IndexOf('*') >= 0
+                    ? token.Trim().ToLowerInvariant()
+                    : NormalizeSectionName(token);
+
+                if (name.Length > 0 && !tokens.Contains(name))
+                {
+                    tokens.Add(name);
+                }
+            }
+
+            return tokens;
+        }
+
+        /// <summary>
+        /// Whether a section name matches one of the administrator's excluded tokens.
+        /// <para>
+        /// Plain tokens compare exactly after <see cref="NormalizeSectionName"/>, so
+        /// <c>Authentication</c>, <c>authenticationconfig</c> and <c>Authentication.config</c> all
+        /// match the section <c>AuthenticationConfig</c>.
+        /// </para>
+        /// <para>
+        /// Tokens containing <c>*</c> are treated as wildcards and matched against BOTH the raw
+        /// section name and its suffix-stripped form, so <c>Auth*</c> catches
+        /// <c>AuthenticationConfig</c> either way. A malformed or pathological pattern is ignored
+        /// rather than throwing.
+        /// </para>
+        /// </summary>
+        /// <param name="sectionName">Candidate section name (type name, file name, or index value).</param>
+        /// <param name="excludedTokens">Tokens from <see cref="GetExcludedConfigSections"/>.</param>
+        public static bool IsSectionExcluded(string sectionName, List<string> excludedTokens)
+        {
+            if (excludedTokens == null || excludedTokens.Count == 0 || string.IsNullOrWhiteSpace(sectionName))
+            {
+                return false;
+            }
+
+            var raw = sectionName.Trim().ToLowerInvariant();
+            var stripped = NormalizeSectionName(sectionName);
+
+            foreach (var token in excludedTokens)
+            {
+                if (token.IndexOf('*') >= 0)
+                {
+                    if (WildcardMatches(token, raw) || WildcardMatches(token, stripped))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (stripped.Length > 0 && string.Equals(token, stripped, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Matches a <c>*</c> wildcard token against a candidate. The token is escaped so only
+        /// <c>*</c> is special, then anchored. A parse failure or match timeout is treated as
+        /// "no match" so one bad token can never break the endpoint.
+        /// </summary>
+        /// <param name="token">Wildcard token, already trimmed and lower-cased.</param>
+        /// <param name="candidate">Candidate section name to test.</param>
+        private static bool WildcardMatches(string token, string candidate)
+        {
+            if (string.IsNullOrEmpty(candidate))
+            {
+                return false;
+            }
+
+            try
+            {
+                var pattern = "^" + Regex.Escape(token).Replace("\\*", ".*") + "$";
+                return Regex.IsMatch(candidate, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            }
+            catch
+            {
+                // Malformed or pathological pattern — ignore the token rather than failing the call.
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Trims, lower-cases, then strips a trailing <c>.config</c> and a trailing <c>config</c>,
+        /// so every spelling of a section name collapses to one comparable token.
+        /// </summary>
+        /// <param name="name">Raw section name or configured token.</param>
+        public static string NormalizeSectionName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return string.Empty;
+            }
+
+            var value = name.Trim().ToLowerInvariant();
+
+            if (value.EndsWith(".config", StringComparison.Ordinal))
+            {
+                value = value.Substring(0, value.Length - ".config".Length);
+            }
+
+            if (value.EndsWith("config", StringComparison.Ordinal) && value.Length > "config".Length)
+            {
+                value = value.Substring(0, value.Length - "config".Length);
+            }
+
+            return value.Trim();
+        }
+
+        /// <summary>
+        /// Throws an HTTP 403 when the requested configuration section has been hidden by an
+        /// administrator (Config Reader &gt; Excluded Sections).
+        /// </summary>
+        /// <param name="sectionName">Section the caller asked for.</param>
+        public static void EnsureSectionNotExcluded(string sectionName)
+        {
+            if (!IsSectionExcluded(sectionName, GetExcludedConfigSections()))
+            {
+                return;
+            }
+
+            var body = new McpCapabilityDisabledResponse
+            {
+                Disabled = ConfigSection,
+                Reason = "Configuration section '" + sectionName + "' is excluded by the administrator in " +
+                    "Sitefinity Admin > Advanced > McpSettings > Config Reader > Excluded Sections.",
+            };
+
+            throw new HttpError(body, HttpStatusCode.Forbidden, "CapabilityDisabled",
+                "Configuration section '" + sectionName + "' is hidden by the administrator " +
+                "(McpSettings > Config Reader > Excluded Sections).");
         }
 
         /// <summary>

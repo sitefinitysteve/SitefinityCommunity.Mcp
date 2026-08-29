@@ -264,6 +264,67 @@ public sealed class CapabilityGateUnitTests
         Assert.Throws<HttpRequestException>(() => response.EnsureSuccessStatusCode());
     }
 
+    [Theory]
+    [InlineData("FormsResponses", "Forms > Allow Responses")]
+    [InlineData("ConfigSection", "Config Reader > Excluded Sections")]
+    public void SubCapability403_MapsToItsAdminSetting(string capability, string expectedPath)
+    {
+        // Sub-capabilities are never pre-blocked (they gate one endpoint / one named section, so they
+        // are not roster entries) — they only ever arrive as a 403 body, and must still read sensibly.
+        Assert.Null(FeatureRoster.AllEnabled.GetType().GetProperty(capability));
+
+        var message = CapabilityGate.BuildDisabledMessage(capability);
+
+        Assert.Contains(expectedPath, message);
+    }
+
+    [Fact]
+    public async Task Forbidden_WithFormsResponsesBody_MapsToTheAllowResponsesSwitch()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent(
+                """{"Disabled":"FormsResponses","Reason":"Disabled by the administrator in Sitefinity Admin > Advanced > McpSettings."}""",
+                System.Text.Encoding.UTF8,
+                "application/json")
+        };
+
+        var ex = await Assert.ThrowsAsync<SitefinityCapabilityDisabledException>(
+            () => response.EnsureCapabilityEnabledAsync());
+
+        Assert.Equal("FormsResponses", ex.Capability);
+        Assert.Contains("Forms > Allow Responses", ex.Message);
+    }
+
+    [Fact]
+    public async Task Forbidden_WithExcludedSectionBody_MapsToTheExcludedSectionsSetting()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent(
+                """{"Disabled":"ConfigSection","Reason":"Configuration section 'AuthenticationConfig' is excluded by the administrator."}""",
+                System.Text.Encoding.UTF8,
+                "application/json")
+        };
+
+        var ex = await Assert.ThrowsAsync<SitefinityCapabilityDisabledException>(
+            () => response.EnsureCapabilityEnabledAsync());
+
+        Assert.Equal("ConfigSection", ex.Capability);
+        Assert.Contains("Config Reader > Excluded Sections", ex.Message);
+    }
+
+    [Fact]
+    public void Roster_DoesNotCarrySubCapabilities()
+    {
+        // Forms responses and hidden config sections are enforced plugin-side only, so a disabled
+        // one must NOT cause the tool to be pre-blocked — the tool still runs and gets the 403.
+        var roster = FeatureRoster.AllEnabled;
+
+        Assert.Null(CapabilityGate.CheckTool("sitefinity_list_form_responses", roster));
+        Assert.Null(CapabilityGate.CheckTool("sitefinity_get_config_section", roster));
+    }
+
     [Fact]
     public async Task SuccessResponse_IsNeverTreatedAsDisabled()
     {

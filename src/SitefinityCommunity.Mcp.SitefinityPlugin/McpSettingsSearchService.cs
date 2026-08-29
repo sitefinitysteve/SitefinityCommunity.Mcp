@@ -92,6 +92,13 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                 response.IndexAvailable = true;
 
+                // Hits in an administrator-excluded section are dropped BEFORE Take and before the
+                // count, so the returned count stays honest and a hidden section cannot be inferred
+                // from a short page. The filter runs regardless of the query — it is not a
+                // term-dependent behaviour that could be probed.
+                var excluded = McpCapabilities.GetExcludedConfigSections();
+                var hiddenHits = 0;
+
                 foreach (var doc in resultSet)
                 {
                     if (doc == null)
@@ -99,7 +106,15 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                         continue;
                     }
 
-                    response.Results.Add(MapDocument(doc));
+                    var hit = MapDocument(doc);
+
+                    if (McpCapabilities.IsSectionExcluded(hit.Section, excluded))
+                    {
+                        hiddenHits++;
+                        continue;
+                    }
+
+                    response.Results.Add(hit);
 
                     if (response.Results.Count >= take)
                     {
@@ -108,6 +123,12 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 }
 
                 response.ReturnedCount = response.Results.Count;
+
+                if (hiddenHits > 0)
+                {
+                    response.Warnings.Add(hiddenHits + " result(s) were removed because their configuration " +
+                        "section is hidden by the administrator (McpSettings > Config Reader > Excluded Sections).");
+                }
             }
             catch (HttpError)
             {

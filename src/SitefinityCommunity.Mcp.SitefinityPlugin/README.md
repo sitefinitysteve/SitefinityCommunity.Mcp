@@ -97,6 +97,45 @@ A disabled capability returns **HTTP 403** with `{ "Disabled": "<name>", "Reason
 
 Unchecking a source does **not** fail the incident call — that source is skipped and the response carries a warning saying an administrator disabled it.
 
+**Forms** has two extra settings for submission privacy:
+
+- **Allow Responses** (default on) — uncheck to keep form *definitions* readable while refusing `/mcp/forms/{id}/responses` with 403. Useful when an assistant should understand a form's shape but never see what people submitted.
+- **Excluded Fields** (default blank) — comma-separated field names stripped from every submission, e.g. `SSN, HealthCard`. Case-insensitive, matched on the exact field name. Excluded fields are removed **before** redaction and **before** any `SearchTerm` is matched, so they can't be found by searching for their values, and they simply don't appear in the output (no placeholder). The response lists which fields were excluded.
+
+**Config Reader** has one extra setting:
+
+- **Excluded Sections** (default blank) — comma-separated configuration section names hidden from the MCP entirely: omitted from `/mcp/config`, refused with 403 from `/mcp/config/{SectionName}`, and stripped from `/mcp/settings/search` results before the result count. A `Config` / `.config` suffix is optional — `Authentication` also matches `AuthenticationConfig` and `Authentication.config`. `*` wildcards work too: `Auth*` hides everything starting with Auth, `*Security*` everything containing Security.
+
+### 3c. Brute-force protection (automatic, nothing to configure)
+
+The `[McpApiKey]` filter throttles failed authentication per client IP: **10 failures in 5 minutes freezes that IP for 15 minutes**, returning HTTP **429** with a `Retry-After` header. Requests with no key at all count as failures too.
+
+A **correct key always wins** — it is evaluated before the freeze is applied, so a valid key immediately unfreezes that IP and resets its counter. Nobody can lock your MCP server out by spraying bad keys from the same address.
+
+Notes:
+
+- The bucket is the **direct connection IP**. `X-Forwarded-For` is ignored on purpose (it is attacker-controlled). Behind a reverse proxy every caller shares one bucket — safe because a valid key always resets it.
+- Thresholds are fixed constants; there is nothing to configure and nothing to turn off.
+- Memory is capped at 10,000 tracked IPs and the whole path fails open — a throttle problem degrades to a normal 401, never a 500.
+- The API key comparison is constant-time, so response timing cannot leak the key.
+
+When testing with curl, expect attempts 1–10 to return 401 and attempt 11 to be the first 429 — the freeze is checked before the current failure is recorded.
+
+### 3d. Request auditing (on by default)
+
+**Audit Requests** under **McpSettings** (default **on**) appends one line per request — accepted or rejected — to `App_Data\Sitefinity\Logs\McpAudit.log`:
+
+```
+{utcIso}Z | ip={directIp} | xff={X-Forwarded-For or -} | {METHOD} {path} | {redactedQuery} | auth={valid|invalid-key|missing-key|throttled|disabled}
+```
+
+- **Requests only, never results.**
+- `ip=` is the direct connection address (what the throttle uses). `xff=` is the `X-Forwarded-For` header verbatim, capped at 200 chars — useful behind a proxy, but forgeable, so treat it as a lead rather than proof.
+- Query strings are secret-redacted; newlines and pipes are stripped so a crafted URL cannot forge lines.
+- An `invalid-key` line adds `attempted: len={n} prefix={6 chars} sha256={12 hex}` so you can identify a stale or cross-environment key by hashing your known keys and comparing. The raw key is never written — and a **valid** key is never fingerprinted in any form.
+- Rolls at 10 MB (`McpAudit.1.log` … `McpAudit.3.log`). The whole path fails open: if the file is locked, the disk is full, or the Logs folder is missing, auditing is skipped and the request is unaffected.
+- The file sits in the normal Sitefinity Logs folder on purpose, so the MCP's own log tools (`sitefinity_read_log_file("McpAudit.log")`, `sitefinity_search_logs`) can read it.
+
 ### 4. Verify
 
 ```

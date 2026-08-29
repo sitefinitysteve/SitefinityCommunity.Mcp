@@ -70,8 +70,19 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             try
             {
+                // Sections the administrator has hidden are omitted from the listing entirely, so the
+                // MCP never even learns they exist. Requesting one directly still 403s (see below).
+                var excluded = McpCapabilities.GetExcludedConfigSections();
+                var hidden = 0;
+
                 foreach (var type in DiscoverSectionTypes())
                 {
+                    if (McpCapabilities.IsSectionExcluded(type.Name, excluded))
+                    {
+                        hidden++;
+                        continue;
+                    }
+
                     response.Sections.Add(type.Name);
                 }
 
@@ -79,6 +90,12 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                     .ToList();
+
+                if (hidden > 0)
+                {
+                    response.Warnings.Add(hidden + " configuration section(s) are hidden by the administrator " +
+                        "(McpSettings > Config Reader > Excluded Sections) and are not listed here.");
+                }
             }
             catch (Exception ex)
             {
@@ -99,6 +116,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             {
                 throw HttpError.BadRequest("SectionName is required.");
             }
+
+            McpCapabilities.EnsureSectionNotExcluded(request.SectionName);
 
             var maxEntries = request.MaxEntries > 0
                 ? Math.Min(request.MaxEntries, MaxEntriesCeiling)
@@ -122,6 +141,11 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                         "'. Call /mcp/config to list valid names.");
                     return response;
                 }
+
+                // Re-check against the RESOLVED type name: ResolveSectionType accepts aliases and
+                // partial names, so a caller could otherwise reach an excluded section by a spelling
+                // the requested-name check above didn't recognise.
+                McpCapabilities.EnsureSectionNotExcluded(sectionType.Name);
 
                 response.SectionType = sectionType.FullName;
 

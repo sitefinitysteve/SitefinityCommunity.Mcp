@@ -314,6 +314,34 @@ Two-layer enforcement ensures MCP endpoints can be fully disabled:
 - Sitefinity startup: `McpInit.Register()` checks `IsNullOrWhiteSpace(config.ApiKey)` — skips plugin registration
 - Sitefinity runtime: `McpApiKeyAttribute` checks `IsNullOrWhiteSpace` on both the config key and the request header
 
+**Brute-force throttle + constant-time compare (`McpApiKeyAttribute`):**
+
+- **Per-IP throttle.** A static bounded `ConcurrentDictionary<string, FailureEntry>` tracks failures per client IP. **10** failures inside a **5-minute** rolling window freeze that IP for **15 minutes**, answered with HTTP **429** and a `Retry-After` header. Constants only — deliberately no config knobs.
+- **A correct key always wins.** The presented key is evaluated *before* the freeze is enforced: a valid key unfreezes the IP and resets its counter, then proceeds. This is what stops a lockout-DoS — someone spraying bad keys from behind the same NAT/egress address as the legitimate MCP server can never lock it out. A valid key resets the counter on every request, frozen or not.
+- **Missing keys count as failures** — an unauthenticated probe is exactly what the throttle exists to slow down. Only wrong/missing *non-config* keys count; the `Enabled` and blank-config-key checks keep their existing precedence and never touch the throttle.
+- **Fail open, never closed.** Every throttle call site (`SafeIsFrozen` / `SafeRecordFailure` / `SafeReset` / `Prune` / `TryAddRetryAfter`) swallows its own exceptions. A bug in the throttle degrades to "no throttling" and a plain 401 — it must never turn an auth failure into a 500.
+- **Bounded memory.** Capped at 10,000 tracked IPs; on overflow `Prune` drops expired entries first, then the least recently seen, and never evicts a currently frozen entry. One thread prunes at a time (`Monitor.TryEnter`); others skip.
+- **Constant-time key comparison.** `ConstantTimeEquals` walks the full length of *both* byte arrays and accumulates inequality (seeded with the length difference) rather than returning at the first mismatch, so response timing does not leak a prefix. Hand-rolled because .NET Framework 4.8 has no `CryptographicOperations.FixedTimeEquals`.
+- **X-Forwarded-For is deliberately ignored.** The key is the direct connection address (`HttpContext.Current.Request.UserHostAddress`), because ServiceStack's `IRequest.RemoteIp` consults `X-Forwarded-For` — and an attacker-controlled header would let one client evade the throttle by rotating a value. Behind a reverse proxy this means all traffic shares one bucket; the valid-key-always-wins rule is what keeps that safe.
+- **Off-by-one to expect when testing:** the freeze is checked *before* the failure is recorded, so attempts 1–10 return 401 (the 10th trips the freeze) and attempt **11** is the first 429.
+- Not unit-testable in `tests/` — it is plugin-side .NET 4.8 code. It was verified with an offline reflection harness (threshold, freeze, reset, per-IP isolation, 32-thread concurrency, memory cap) plus a live curl test.
+
+**Request audit log (`McpConfig.AuditRequests`, default ON):**
+
+Every request through the `[McpApiKey]` choke point — accepted or rejected — appends one line to `App_Data\Sitefinity\Logs\McpAudit.log`:
+
+```
+{utcIso}Z | ip={directIp} | xff={X-Forwarded-For or -} | {METHOD} {path} | {redactedQuery} | auth={valid|invalid-key|missing-key|throttled|disabled}
+```
+
+- **Requests only, never results.** The audit answers "who called what from where", not "what came back".
+- **Two IP fields, never conflated.** `ip=` is the direct TCP connection address — trustworthy, and what the throttle keys on. `xff=` is the `X-Forwarded-For` header verbatim (`-` when absent), truncated to 200 chars and redactor-scanned: behind a proxy/CDN it names the real client, but it is caller-supplied and forgeable, so it is informational only.
+- **Query strings are redacted** with the same per-parameter deny-list plus pattern scan used for IIS queries (`McpSecretRedactor.IsDeniedKey` then `Redact`). An audit trail that leaks a secret is worse than no audit trail.
+- **Rejected keys are fingerprinted, never logged.** An `invalid-key` line carries `attempted: len={n} prefix={6 chars} sha256={12 hex}`. The invalid keys that actually occur are nearly-valid — a prod key hitting dev, a stale key after rotation, a typo — so logging them raw would turn the audit file into a credential store. Hash your known keys and compare to identify which one was used. **A VALID key is never fingerprinted — no prefix, no hash, nothing.** `missing-key` and `throttled` lines carry no `attempted:` section.
+- **Log-forging is blocked** — `Sanitize` flattens newlines and pipes out of every field, so a crafted URL cannot inject a fake line.
+- **Rolling + fail-open.** Rolls at 10 MB to `McpAudit.1.log` … `McpAudit.3.log` (oldest deleted). Writes go through a small lock and an append-only `FileStream` with `FileShare.ReadWrite`. The entire path swallows its exceptions — a locked file, a full disk or an unmapped path degrades to no auditing and never affects the request. If `MapPath` fails or the Logs folder is missing, auditing is skipped (Sitefinity owns that folder; it is never created here).
+- **The audit trail is itself MCP-inspectable** — deliberately placed in the standard Sitefinity Logs folder, so `sitefinity_read_log_file("McpAudit.log")` and `sitefinity_search_logs` read it like any other log.
+
 **Important for new plugin services:** Always apply `[McpApiKey]` at the class level on any new ServiceStack service. This ensures the `Enabled` and key checks are enforced automatically on all endpoints in that service.
 
 ### Plugin Source Files (Not a NuGet Package)
@@ -379,13 +407,24 @@ Every capability area can be switched off independently by a Sitefinity administ
 | Logs | `McpLogsToolElement` | `McpLogService` (all log endpoints) |
 | Metadata | `McpMetadataToolElement` | `McpMetadataService` - site info, modules, dynamic types, routes, pages, widgets, templates, taxonomies |
 | Content | `McpContentToolElement` | `McpContentService` |
-| Forms | `McpFormsToolElement` | `McpFormsService` |
-| Config Reader | `McpConfigReaderToolElement` | `McpConfigService` + `McpSettingsSearchService` |
+| Forms | `McpFormsToolElement` | `McpFormsService` — plus `AllowResponses` (definitions stay readable, submissions 403) and `ExcludedFields` |
+| Config Reader | `McpConfigReaderToolElement` | `McpConfigService` + `McpSettingsSearchService` — plus `ExcludedSections` (wildcard-capable) |
 | Where Used | `McpWhereUsedToolElement` | `McpWhereUsedService` |
 | Permissions | `McpPermissionsToolElement` | `McpPermissionsService` |
 | Incident | `McpIncidentToolElement` | `McpSystemLogService` - plus `AllowIisLogs` / `AllowEventLogs` / `AllowHttpErr` and the `IisLogPath` override |
 
 Maintenance needs no element - `AllowWriteOperations` already gates it, and the roster reports it as `Maintenance` so the same pre-block message applies.
+
+**Sub-capabilities.** Two settings gate something narrower than a tool group, so they are deliberately **not** roster entries and are never pre-blocked — the tool runs and gets the plugin's 403, which `CapabilityGate.AdminElementNames` maps to the right admin path:
+
+- **`Forms > Allow Responses`** (`McpCapabilities.EnsureFormResponsesAllowed`, capability name `FormsResponses`) — form *definitions* stay readable; only the submissions endpoint 403s. An assistant can still reason about a form's shape without ever seeing what people submitted.
+- **`Config Reader > Excluded Sections`** (`McpCapabilities.EnsureSectionNotExcluded`, capability name `ConfigSection`) — gates individual sections by name, not the capability.
+
+**Hiding data rather than blocking endpoints.** Two settings strip data server-side instead of refusing the call:
+
+- **`Forms > ExcludedFields`** — comma-separated, exact field names, case-insensitive. Enforced in `McpFormsService` by removing the names from `fieldNames` *before* `BuildResponseInfo` runs, so an excluded field is never read, never redacted, never in `Values`, and therefore **cannot be matched by `SearchTerm`**. Same oracle rule as redaction-before-match. No placeholder is emitted — the field simply isn't there.
+- **`Config Reader > ExcludedSections`** — comma-separated section names, matched by `McpCapabilities.IsSectionExcluded`. Normalization trims, lower-cases, then strips a trailing `.config` and a trailing `config`, so `Authentication`, `authenticationconfig` and `Authentication.config` all match section `AuthenticationConfig`. Tokens containing `*` are wildcards (`Auth*`, `*Security*`), translated via `Regex.Escape` + `\*` → `.*`, anchored, `IgnoreCase`, 1s timeout, and matched against **both** the raw and suffix-stripped name; a malformed or timing-out pattern is ignored rather than throwing. Suffix-stripping is applied to plain tokens only — stripping `config` off `*config*` would change what the pattern means. Enforced at three points: omitted from `/mcp/config`, 403 from `/mcp/config/{SectionName}` (re-checked against the **resolved** type name so an alias can't slip past), and filtered out of `/mcp/settings/search` **before** `Take` and the count, so a hidden section can't be inferred from a short page.
+
 
 **Element design rules.** Every capability gets its **own named class** deriving from the abstract `McpToolElement` base (which carries only `Enabled`), even when it adds nothing today - that gives each tool a natural home for a future setting without a config migration. Granularity follows the **plugin service boundary**: tools backed by one service (the log trio, the metadata family) share one element; don't split finer. Keep the number of settings small - `Enabled` only, unless a tool has a genuine knob (`Incident`'s three source flags and `IisLogPath` are the proof case).
 

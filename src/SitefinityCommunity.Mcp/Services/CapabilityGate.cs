@@ -75,6 +75,12 @@ public static class CapabilityGate
         ["Permissions"] = "Permissions",
         ["Incident"] = "Incident",
         ["Maintenance"] = "Allow Write Operations",
+
+        // Sub-capabilities: not roster entries and never pre-blocked (they gate one endpoint, or one
+        // named section, rather than a tool group). They only ever arrive as a 403 body, so they need
+        // an admin path here for the message to read sensibly.
+        ["FormsResponses"] = "Forms > Allow Responses",
+        ["ConfigSection"] = "Config Reader > Excluded Sections",
     };
 
     /// <summary>
