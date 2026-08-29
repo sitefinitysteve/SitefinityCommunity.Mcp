@@ -31,6 +31,7 @@ public sealed class RemoteLogProvider : ILogProvider
     {
         var client = CreateClient();
         var response = await client.GetAsync("/RestApi/mcp/logs?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -45,6 +46,7 @@ public sealed class RemoteLogProvider : ILogProvider
         var client = CreateClient();
         var encodedName = Uri.EscapeDataString(fileName);
         var response = await client.GetAsync($"/RestApi/mcp/logs/{encodedName}?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -72,6 +74,7 @@ public sealed class RemoteLogProvider : ILogProvider
         };
 
         var response = await client.PostAsJsonAsync("/RestApi/mcp/logs/search?format=json", request, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 

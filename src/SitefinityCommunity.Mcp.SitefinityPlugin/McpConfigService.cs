@@ -64,6 +64,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpConfigSectionsResponse Get(GetConfigSections request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.ConfigReader);
+
             var response = new McpConfigSectionsResponse();
 
             try
@@ -91,6 +93,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpConfigSectionResponse Get(GetConfigSection request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.ConfigReader);
+
             if (string.IsNullOrWhiteSpace(request.SectionName))
             {
                 throw HttpError.BadRequest("SectionName is required.");

@@ -2,6 +2,22 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.0] — 2026-08-28
+
+### Added
+
+- **Per-capability enable/disable in the Sitefinity admin.** Admin > Advanced > McpSettings now carries a nested element per capability — **Logs**, **Metadata**, **Content**, **Forms**, **Config Reader**, **Where Used**, **Permissions**, **Incident** — each with an `Enabled` checkbox. **Everything defaults to enabled, so upgrading changes nothing** until an administrator turns something off. Maintenance needs no new element: the existing **Allow Write Operations** flag already gates it.
+  - **The plugin is the security boundary.** Every service handler calls `McpCapabilities.EnsureEnabled(...)` as its first line and returns HTTP 403 with a structured `{ Disabled, Reason }` body when the capability is off. A missing or unreadable config section **fails open** to the shipped defaults — a config read error must never silently disable a working install.
+  - **Incident** additionally gates the three OS-level sources it reads: **Allow IIS Logs**, **Allow Event Logs**, **Allow HTTPERR**. A disabled source is skipped and reported as a `Warnings` entry ("IIS source disabled by administrator…") rather than failing the call — the same shape as the existing ACL-denied warnings. Candidate discovery and cross-source search honour the flags too.
+  - **`GET /mcp/ping` now returns a `Features` roster** listing every capability's state (plus `Maintenance`, mirroring Allow Write Operations). The MCP server caches it alongside the existing key-validation result and refuses a disabled tool up front — "This tool is disabled by the Sitefinity administrator (Admin > Advanced > McpSettings > Forms)" — with no network call. This is a courtesy layer: the plugin re-checks on every request, so a stale roster can never grant access. A plugin that reports no roster (any build before 3.5.0) is treated as everything-enabled, so the MCP server stays fully backwards compatible.
+  - A 403 carrying the capability-disabled body is mapped to the same friendly message wherever it arrives, covering a stale cached roster, a setting changed mid-session, and remote-mode log tools (never pre-blocked, because in local mode they read the filesystem directly).
+
+### Changed
+
+- **The `IisLogPath` setting moved from the top level of McpSettings into the Incident element** (Admin > Advanced > McpSettings > Incident > IIS Log Path). 3.0.0 was never published to npm, so no install in the wild carries the old top-level property; there is no back-compat shim. Re-enter the path if you had set it on a 3.0.0 preview build.
+- `sitefinity_investigate_incident`'s description now notes that individual sources can be switched off by the administrator and come back as warnings.
+- Every capability gets its own named element class (`McpLogsToolElement`, `McpMetadataToolElement`, … `McpIncidentToolElement`) on a shared `McpToolElement` base, even when it adds nothing beyond `Enabled` — so a future per-tool setting has an obvious home without a config migration. All of them live in `McpConfig.cs`; the feature added no new plugin source files.
+
 ## [3.0.0] — 2026-08-28
 
 ### Added

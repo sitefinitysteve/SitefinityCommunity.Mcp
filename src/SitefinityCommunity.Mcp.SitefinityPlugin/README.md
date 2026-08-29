@@ -69,8 +69,33 @@ That's it — this registers the config section and all ServiceStack endpoints.
 1. Go to **Administration → Settings → Advanced → McpSettings**
 2. Set the **API Key** (must match `sitefinityApiKey` in your `sitefinity-mcp.json`)
 3. **Enabled** is `true` by default — set to `false` to disable endpoints
-4. **IIS Log Path** is optional — leave blank to auto-detect this site's W3SVC log folder (used by `/mcp/incident-window`)
-5. **Allow Write Operations** is `false` by default. Enable it only if you want the MCP server to be able to clear caches or recycle this instance (`/mcp/cache/clear`, `/mcp/app/recycle`). Leave OFF on production.
+4. **Allow Write Operations** is `false` by default. Enable it only if you want the MCP server to be able to clear caches or recycle this instance (`/mcp/cache/clear`, `/mcp/app/recycle`). Leave OFF on production.
+
+### 3b. Turn individual capabilities off (optional)
+
+Under **McpSettings** each capability is its own expandable node with an **Enabled** checkbox. **They all start enabled** — you only need to visit this if you want to narrow what the MCP server can reach.
+
+| Node | Turning it off blocks |
+|------|-----------------------|
+| **Logs** | `/mcp/logs`, `/mcp/logs/{FileName}`, `/mcp/logs/search`, `/mcp/logs/last-error` |
+| **Metadata** | Site info, modules, dynamic types, routes, page details, widget properties, widget tree, templates, taxonomies |
+| **Content** | `/mcp/content` (live content item queries) |
+| **Forms** | Form definitions and form submissions |
+| **Config Reader** | `/mcp/config`, `/mcp/config/{SectionName}`, `/mcp/settings/search` |
+| **Where Used** | `/mcp/where-used` |
+| **Permissions** | `/mcp/permissions` |
+| **Incident** | `/mcp/incident-window` |
+
+A disabled capability returns **HTTP 403** with `{ "Disabled": "<name>", "Reason": "…" }`. The change takes effect on the next request — **no app pool recycle needed**. `/mcp/ping` is never blocked: it reports the current on/off state so the MCP server can tell the user which tools are unavailable and why.
+
+**Incident** has three extra checkboxes for the OS-level log sources it reads, plus the IIS folder override:
+
+- **Allow IIS Logs** — read this site's IIS W3C access log. Cookie and Authorization columns are never read; client IP and IIS username are returned.
+- **Allow Event Logs** — read the Windows Application and System event logs. The Security log is never read.
+- **Allow HTTPERR** — read the http.sys HTTPERR logs.
+- **IIS Log Path** — optional; leave blank to auto-detect this site's `W3SVC{siteId}` log folder.
+
+Unchecking a source does **not** fail the incident call — that source is skipped and the response carries a warning saying an administrator disabled it.
 
 ### 4. Verify
 
@@ -85,7 +110,7 @@ Should return a JSON array of log files.
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/mcp/ping` | GET | Lightweight key validation (returns `{ status: "ok" }`) |
+| `/mcp/ping` | GET | Lightweight key validation (returns `{ status: "ok", features: { ... } }`). Never blocked by a capability toggle |
 | `/mcp/logs` | GET | List all log files |
 | `/mcp/logs/{FileName}` | GET | Read a log file |
 | `/mcp/logs/search` | POST | Search logs with regex |
@@ -123,7 +148,7 @@ net localgroup "Event Log Readers" "IIS APPPOOL\{AppPool}" /add
 
 The **Security** log is deliberately never read — an app pool identity cannot read it, and nothing an outage investigation needs lives there.
 
-**2. IIS W3C access log folder.** Auto-detected as `%SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId}`, with the site id parsed from `HostingEnvironment.ApplicationID`. Override it with **IIS Log Path** in Sitefinity Admin > Advanced > McpSettings when the site logs elsewhere (or when the site id cannot be resolved — virtual applications). Grant read access:
+**2. IIS W3C access log folder.** Auto-detected as `%SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId}`, with the site id parsed from `HostingEnvironment.ApplicationID`. Override it with **IIS Log Path** in Sitefinity Admin > Advanced > McpSettings > Incident when the site logs elsewhere (or when the site id cannot be resolved — virtual applications). Grant read access:
 
 ```powershell
 icacls "C:\inetpub\logs\LogFiles\W3SVC1" /grant "IIS APPPOOL\{AppPool}:(OI)(CI)R"

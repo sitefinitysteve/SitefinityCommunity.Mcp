@@ -34,6 +34,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public List<McpLogFileInfo> Get(ListLogFiles request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Logs);
+
             if (!Directory.Exists(LogsPath))
             {
                 return new List<McpLogFileInfo>();
@@ -56,6 +58,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public string Get(ReadLogFile request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Logs);
+
             ValidateFileName(request.FileName);
 
             var filePath = Path.Combine(LogsPath, request.FileName);
@@ -90,6 +94,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public List<McpSearchResult> Post(SearchLogs request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Logs);
+
             if (string.IsNullOrEmpty(request.Pattern))
             {
                 throw HttpError.BadRequest("Pattern is required.");
@@ -149,11 +155,19 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
         /// <summary>
         /// GET /RestApi/mcp/ping — Lightweight key validation endpoint.
-        /// Returns { status: "ok" } if the API key is valid.
+        /// Returns <c>{ status: "ok" }</c> plus the per-capability feature roster if the API key is valid.
+        /// <para>
+        /// Deliberately NOT capability-gated: this is how the MCP server learns which capabilities
+        /// are off, so it must answer even when every other endpoint is disabled.
+        /// </para>
         /// </summary>
         public McpPingResponse Get(PingMcp request)
         {
-            return new McpPingResponse { Status = "ok" };
+            return new McpPingResponse
+            {
+                Status = "ok",
+                Features = McpCapabilities.BuildRoster(),
+            };
         }
 
         /// <summary>
@@ -161,6 +175,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public string Get(GetLastError request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Logs);
+
             var errorLogPath = Path.Combine(LogsPath, "Error.log");
             if (!File.Exists(errorLogPath))
             {

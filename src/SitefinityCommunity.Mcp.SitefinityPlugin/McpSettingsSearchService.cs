@@ -37,6 +37,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpSettingsSearchResponse Get(SearchSettings request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.ConfigReader);
+
             if (string.IsNullOrWhiteSpace(request.Query))
             {
                 throw HttpError.BadRequest("Query is required.");

@@ -39,6 +39,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpWhereUsedResponse Get(WhereUsed request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.WhereUsed);
+
             if (string.IsNullOrWhiteSpace(request.Query))
             {
                 throw HttpError.BadRequest("Query is required (a widget/controller type, a content Guid, " +

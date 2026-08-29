@@ -16,7 +16,7 @@ It's open source and community-driven — contributions, ideas, and feedback are
 
 ## Features
 
-- **Log Tools** — Read error/trace logs, search across all log files with regex, get the last error
+- **Log Tools** — Read any Sitefinity log (defaults to `Error.log`), regex-search across every log file with context, list log files with size and modified date
 - **Site Info** — Sitefinity version, .NET version, project name, configured languages, multisite info
 - **Module Inspector** — List all installed modules with type, status, and startup type
 - **Content Model** — Browse Module Builder dynamic types and their field definitions
@@ -30,6 +30,8 @@ It's open source and community-driven — contributions, ideas, and feedback are
 - **Multi-Environment** — Switch between dev/staging/prod environments on the fly
 - **Dual-Mode Logs** — Local filesystem access for dev, HTTP via companion plugin for remote servers
 - **Auto-Discovery** — New tools are picked up automatically via `[McpServerToolType]` attribute
+- **Incident Investigation** — One tool correlating Sitefinity logs, the IIS access log, the Windows event logs, and HTTPERR across one window, in both UTC and server-local time
+- **Capability Toggles** — Admins switch off any capability (or an individual incident log source) from Sitefinity's admin UI; enforced plugin-side, effective immediately, all enabled by default
 - **API Key Validation** — Proactive key matching between MCP server and Sitefinity plugin
 
 ## Installation
@@ -337,7 +339,13 @@ By default this returns **overrides only** — the values someone actually chang
 
 Because those clocks disagree, **every entry carries both `TimestampUtc` and `TimestampLocal`**, and the response reports `ServerTimeZoneId` plus the UTC offset that applied *at the queried instant* (not "now", which would be wrong across a DST boundary).
 
-Three modes, picked by which arguments you pass:
+Three modes, picked by which arguments you pass — in practice you just ask, and the assistant picks:
+
+| Ask | Mode | Call |
+|-----|------|------|
+| "The site went down sometime this week — when?" | discovery | `sitefinity_investigate_incident()` |
+| "What happened at 11am?" | window | `sitefinity_investigate_incident(time: "11:00")` |
+| "Trace everything steve@medportal.ca did in the last 3 days" | search | `sitefinity_investigate_incident(query: "steve@medportal.ca", lookbackHours: 72)` |
 
 1. **Discovery** — no `time`, no `query`. "The site crashed sometime this week, when?" Scans the cheap high-signal sources over `lookbackHours` (default 72, max 336) and returns clustered candidate moments, newest first, each with a headline signal like `WAS 5011 worker process crash` or `HTTPERR 503 burst (AppOffline x142)`. Signals within 10 minutes fold into one candidate. It deliberately does **not** scan the IIS access log — sweeping it over multiple days is far too expensive.
 2. **Window** — pass `time` (`"11:00"`, `"2026-08-27 11:00"`, or full ISO 8601; read as **server-local** unless it carries an explicit offset or `Z`). Returns the full correlated reconstruction of `time ± windowMinutes` (default 15, max 120).
@@ -349,7 +357,23 @@ Passing `time` **and** `query` filters that window to matching entries. For IIS 
 
 **Privacy stance.** Query strings are parsed and redacted per parameter (deny-listed names lose their values, then the whole string is pattern-scanned), and the `cs(Cookie)` / `cs(Authorization)` columns are **never read at all** — a redacted credential is still a credential-shaped string in an LLM context. Client IPs and `cs-username` **are** returned deliberately: correlating an outage to who was hitting what is the entire purpose. Query matching runs **after** redaction, so `query` can never be used as an oracle to confirm a value the redactor removed.
 
-**Prerequisites.** Reading the Windows event logs requires the app pool identity to be in the local **Event Log Readers** group; the IIS and HTTPERR folders need read access for that identity. When any of those is missing the response carries a warning with the exact `icacls` / group-membership fix instead of failing. The IIS log folder is auto-detected as `%SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId}`; override it with **IIS Log Path** in Sitefinity Admin > Advanced > McpSettings.
+**Prerequisites (OS-level).** The app pool identity needs permission to read three things outside the web root. Nothing fails hard when it can't — the response carries a warning with the exact fix — but you get less evidence. Run these elevated on the web server, substituting your app pool name and log paths:
+
+```powershell
+# 1. Windows event logs (Application + System) — add the app pool identity to Event Log Readers
+net localgroup "Event Log Readers" "IIS APPPOOL\YourAppPoolName" /add
+
+# 2. IIS W3C access log folder (site id from Admin > Advanced > McpSettings > Incident > IIS Log Path,
+#    or the auto-detected %SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId})
+icacls "C:\inetpub\logs\LogFiles\W3SVC1" /grant "IIS APPPOOL\YourAppPoolName:(OI)(CI)(RX)"
+
+# 3. HTTPERR folder
+icacls "C:\Windows\System32\LogFiles\HTTPERR" /grant "IIS APPPOOL\YourAppPoolName:(OI)(CI)(RX)"
+```
+
+Then recycle the app pool so the token picks up the new group membership. The IIS log folder is auto-detected as `%SystemDrive%\inetpub\logs\LogFiles\W3SVC{siteId}` from `HostingEnvironment.ApplicationID`; override it with **IIS Log Path** in Sitefinity Admin > Advanced > McpSettings > **Incident** when the site logs elsewhere or the site id can't be resolved (virtual applications).
+
+**Turning sources off.** The same **Incident** node has **Allow IIS Logs**, **Allow Event Logs** and **Allow HTTPERR** checkboxes (all on by default). Unchecking one doesn't fail the call — that source is skipped and the response says so in `Warnings`, exactly like a permissions failure. Unchecking **Enabled** on the Incident node blocks the endpoint entirely (HTTP 403). See [Capability Toggles](#capability-toggles).
 
 ### Maintenance (Write Operations)
 
@@ -360,9 +384,51 @@ Because they change state, they are gated on **both** sides and both must opt in
 1. **MCP server side** — the target environment must set `"allowWriteOperations": true` in `sitefinity-mcp.json`. `EffectiveAllowWriteOperations` is prod-guarded, so any environment whose name starts with `prod` is always refused regardless of the flag. The tool refuses before any network call when this is off.
 2. **Plugin side** — **Allow Write Operations** must be checked in Sitefinity Admin > Advanced > McpSettings (default off). When it's off, the `/mcp/cache/clear` and `/mcp/app/recycle` endpoints return HTTP 403.
 
+### Capability Toggles
+
+<a id="capability-toggles"></a>
+
+A Sitefinity administrator can switch off any capability area independently, in **Admin > Settings > Advanced > McpSettings**. Each one is an expandable node with an **Enabled** checkbox.
+
+**Everything is enabled by default** — upgrading an existing install changes nothing until you uncheck something.
+
+| Node | Turning it off blocks |
+|------|-----------------------|
+| **Logs** | `sitefinity_read_log_file`, `sitefinity_search_logs`, `sitefinity_list_log_files` (remote mode; a `logsPath` environment still reads the filesystem locally) |
+| **Metadata** | Site info, modules, dynamic types, routes, page details, widget properties, widget tree, templates, taxonomies |
+| **Content** | `sitefinity_list_content` |
+| **Forms** | `sitefinity_list_forms`, `sitefinity_get_form_fields`, `sitefinity_list_form_responses` |
+| **Config Reader** | `sitefinity_list_config_sections`, `sitefinity_get_config_section`, `sitefinity_search_settings` |
+| **Where Used** | `sitefinity_where_used` |
+| **Permissions** | `sitefinity_get_permissions` |
+| **Incident** | `sitefinity_investigate_incident` — plus **Allow IIS Logs** / **Allow Event Logs** / **Allow HTTPERR** for its individual sources, and the **IIS Log Path** override |
+
+Cache clear and recycle need no node of their own — the existing **Allow Write Operations** checkbox already gates them.
+
+**Changes apply on the next request — no app pool recycle.** (Unlike the top-level `Enabled` kill switch, which also skips route registration at startup.)
+
+**The plugin enforces this, not the client.** A disabled capability returns **HTTP 403** with a `{ "Disabled": "<name>", "Reason": "…" }` body to *anything* that calls it — this MCP server, curl, a script, anything. As a convenience the MCP server also reads the current state from `/mcp/ping` and refuses a disabled tool up front with "This tool is disabled by the Sitefinity administrator (Admin > Advanced > McpSettings > Forms)", saving a round trip; that check is a shortcut, never the boundary, so a stale cache can't grant access. `/mcp/ping` itself is never blocked — it's how the server learns what's off.
+
 ### Secret Redaction
 
-Every string returned by log tools, widget tools, form response tools, the config reader, and list_content flows through a deny-list + pattern scanner. Values keyed by `Password`, `ApiKey`, `Secret`, etc. become `[REDACTED]`; embedded JWTs, AWS keys, GitHub PATs, Slack tokens, OpenAI keys, Azure connection strings, and `Password=...` connection-string fragments are replaced with `[REDACTED:<kind>]` tags. **Redaction is unconditional — there is no flag to disable it, in any environment including dev.** A raw secret in the LLM context is a leak (it can be logged, cached, or absorbed into model training data), so the server never emits one.
+**Everything this server hands to an LLM is scrubbed first.** Two mirrored redactors do the work — `McpSecretRedactor.cs` inside Sitefinity (so secrets never leave the server) and `Security/SecretRedactor.cs` in the MCP server (for logs read straight off the filesystem in local mode). Both apply the same two layers:
+
+1. **Field-name deny-list** — a value keyed by `Password`, `ApiKey`, `Secret`, `Token`, `Authorization`, or anything containing `*secret*` / `*password*` is replaced wholesale with `[REDACTED]`.
+2. **Value-pattern scanner** — embedded JWTs, bearer headers, AWS keys, GitHub PATs, Slack and OpenAI tokens, Azure storage keys, App Insights instrumentation keys, and `Password=…` connection-string fragments become `[REDACTED:<kind>]` regardless of what they're keyed by.
+
+This covers log tools, page/widget properties, form submissions, `list_content`, the config reader, the settings search, and every incident source.
+
+**Redaction is unconditional. There is no flag to disable it, in any environment, including dev.** A raw secret in an LLM context is a leak — it can be logged, cached, or absorbed into model training data — so the server never emits one. The config reader over-redacts on purpose: anything credential-shaped is withheld even if it wasn't actually a secret.
+
+**Search can't be used as an oracle.** Wherever a search or filter term is matched — `sitefinity_list_form_responses`'s `searchTerm`, `sitefinity_investigate_incident`'s `query` — matching runs **after** redaction. You cannot confirm a redacted value by searching for it.
+
+**Incident sources specifically:**
+
+- IIS **query strings** are split into `name=value` pairs and deny-listed *per parameter name* before the whole string is pattern-scanned, so `?token=abc` loses its value even though the URL as a whole looks innocuous.
+- `cs(Cookie)` and `cs(Authorization)` are **never read at all** — not read-then-redacted. A redacted credential is still a credential-shaped string sitting in a context window.
+- Raw IIS log lines are never returned; only aggregates and capped, redacted lists.
+
+**One deliberate exception:** `cs-username` and client IPs (`c-ip`) **are** returned. Correlating an outage to who was hitting what is the entire point of the tool, and they aren't credentials. If that's not acceptable for your site, uncheck **Allow IIS Logs** under Admin > Advanced > McpSettings > Incident.
 
 ---
 
@@ -372,6 +438,8 @@ Every string returned by log tools, widget tools, form response tools, the confi
 
 1. **Startup gate** — `McpInit.Register()` checks `Enabled` and `ApiKey` before registering the ServiceStack plugin. If either is disabled/blank, the `/RestApi/mcp/*` routes don't exist at all (404, no attack surface). Requires app pool recycle to toggle.
 2. **Runtime gate** — The `[McpApiKey]` request filter attribute checks `Enabled` on every request. If someone disables MCP in admin after startup, requests are immediately blocked without an app pool recycle.
+
+**Per-capability toggles** — Each capability (Logs, Metadata, Content, Forms, Config Reader, Where Used, Permissions, Incident) has its own `Enabled` checkbox under **McpSettings**, all on by default. The plugin refuses a disabled capability with HTTP 403 on every request regardless of client. See [Capability Toggles](#capability-toggles).
 
 **Encryption at rest** — The API key in Sitefinity's config is marked with `[SecretData]`, so it's stored encrypted in `McpConfig.config`. Sitefinity decrypts it transparently when the property is read in code.
 

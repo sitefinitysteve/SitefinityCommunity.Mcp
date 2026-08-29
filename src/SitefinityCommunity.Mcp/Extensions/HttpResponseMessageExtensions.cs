@@ -1,3 +1,7 @@
+using System.Net.Http.Json;
+using SitefinityCommunity.Mcp.Models;
+using SitefinityCommunity.Mcp.Services;
+
 namespace SitefinityCommunity.Mcp.Extensions;
 
 /// <summary>
@@ -46,5 +50,60 @@ public static class HttpResponseMessageExtensions
         {
             throw new SitefinityBootstrappingException();
         }
+    }
+
+    /// <summary>
+    /// Turns the plugin's capability-disabled 403 into a
+    /// <see cref="SitefinityCapabilityDisabledException"/> carrying the same friendly message the
+    /// tool filter uses. Call this <em>before</em>
+    /// <see cref="HttpResponseMessage.EnsureSuccessStatusCode"/>, which would otherwise raise a
+    /// bare "403 Forbidden".
+    /// <para>
+    /// Any other 403 (a genuine authorization failure) is left alone for
+    /// <c>EnsureSuccessStatusCode</c> to report.
+    /// </para>
+    /// </summary>
+    /// <param name="response">Response from a Sitefinity MCP endpoint.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public static async Task EnsureCapabilityEnabledAsync(
+        this HttpResponseMessage response, CancellationToken ct = default)
+    {
+        if (response.StatusCode != System.Net.HttpStatusCode.Forbidden || response.IsHtmlResponse())
+        {
+            return;
+        }
+
+        CapabilityDisabledBody? body = null;
+
+        try
+        {
+            body = await response.Content.ReadFromJsonAsync<CapabilityDisabledBody>(
+                SitefinityJsonOptions.Default, ct);
+        }
+        catch (Exception)
+        {
+            // Not a capability-disabled body — fall through and let the normal status handling run.
+        }
+
+        var capability = body?.Disabled;
+
+        // ServiceStack may wrap the DTO in its ResponseStatus envelope instead of serializing it
+        // raw (observed live on Sitefinity 15.4) — recover the capability name from the message.
+        if (string.IsNullOrWhiteSpace(capability)
+            && string.Equals(body?.ResponseStatus?.ErrorCode, "CapabilityDisabled", StringComparison.OrdinalIgnoreCase))
+        {
+            var message = body!.ResponseStatus!.Message ?? string.Empty;
+            var match = System.Text.RegularExpressions.Regex.Match(message, "'([A-Za-z]+)' capability");
+            capability = match.Success ? match.Groups[1].Value : "requested";
+        }
+
+        if (string.IsNullOrWhiteSpace(capability))
+        {
+            return;
+        }
+
+        throw new SitefinityCapabilityDisabledException(
+            capability,
+            CapabilityGate.BuildDisabledMessage(capability));
     }
 }

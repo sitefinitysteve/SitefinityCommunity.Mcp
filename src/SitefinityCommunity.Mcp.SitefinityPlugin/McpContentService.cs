@@ -35,6 +35,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpContentListResponse Get(ListContent request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Content);
+
             if (string.IsNullOrWhiteSpace(request.TypeFullName))
             {
                 throw HttpError.BadRequest("TypeFullName is required.");

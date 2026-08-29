@@ -25,6 +25,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/site-info?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -36,6 +37,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/modules?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -47,6 +49,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/dynamic-types?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -60,6 +63,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var encodedName = Uri.EscapeDataString(typeFullName);
         var response = await client.GetAsync($"/RestApi/mcp/dynamic-types/{encodedName}/fields?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -73,6 +77,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var encoded = Uri.EscapeDataString(moduleName);
         var response = await client.GetAsync($"/RestApi/mcp/modules/{encoded}/structure?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -84,6 +89,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/page-routes?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -95,6 +101,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/api-routes?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -108,6 +115,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var client = CreateClient(environment);
         var encoded = Uri.EscapeDataString(pageIdentifier);
         var response = await client.GetAsync($"/RestApi/mcp/page-details?PageIdentifier={encoded}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -122,6 +130,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encodedWidget = Uri.EscapeDataString(widgetId);
         var encodedPage = Uri.EscapeDataString(pageIdentifier);
         var response = await client.GetAsync($"/RestApi/mcp/widgets/{encodedWidget}/properties?PageIdentifier={encodedPage}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -136,6 +145,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encoded = Uri.EscapeDataString(typeFullName);
         var response = await client.GetAsync(
             $"/RestApi/mcp/content?TypeFullName={encoded}&Take={take}&Skip={skip}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -148,6 +158,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/templates?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -160,6 +171,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/taxonomies?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -174,6 +186,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encoded = Uri.EscapeDataString(pageIdentifier);
         var response = await client.GetAsync(
             $"/RestApi/mcp/page-widget-tree?PageIdentifier={encoded}&IncludeLayoutControls={includeLayoutControls}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -186,6 +199,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/forms?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -200,6 +214,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encoded = Uri.EscapeDataString(formIdentifier);
         var debugQuery = debug ? "&Debug=true" : string.Empty;
         var response = await client.GetAsync($"/RestApi/mcp/forms/{encoded}/fields?format=json{debugQuery}", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -217,6 +232,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             : $"&SearchTerm={Uri.EscapeDataString(searchTerm)}";
         var response = await client.GetAsync(
             $"/RestApi/mcp/forms/{encoded}/responses?Take={take}&Skip={skip}{searchQuery}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -228,6 +244,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.GetAsync("/RestApi/mcp/config?format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -247,6 +264,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         }
 
         var response = await client.GetAsync(url, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -333,6 +351,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         }
 
         var response = await client.GetAsync(query, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -347,6 +366,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
         var encoded = Uri.EscapeDataString(query);
         var kindQuery = string.IsNullOrEmpty(kind) ? string.Empty : $"&Kind={Uri.EscapeDataString(kind)}";
         var response = await client.GetAsync($"/RestApi/mcp/where-used?Query={encoded}{kindQuery}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -363,6 +383,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             ? string.Empty
             : $"&TypeFullName={Uri.EscapeDataString(typeFullName)}";
         var response = await client.GetAsync($"/RestApi/mcp/permissions?Identifier={encoded}{typeQuery}&format=json", ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -379,6 +400,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
             ? string.Empty
             : $"&PageIdentifier={Uri.EscapeDataString(pageIdentifier)}";
         var response = await client.PostAsync($"/RestApi/mcp/cache/clear?format=json{scopeQuery}{pageQuery}", null, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -390,6 +412,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
     {
         var client = CreateClient(environment);
         var response = await client.PostAsync("/RestApi/mcp/app/recycle?format=json", null, ct);
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 
@@ -444,6 +467,7 @@ public sealed class SitefinityMetadataService : ISitefinityMetadataService
                 "out of date. Re-run install-plugin.ps1 against the Sitefinity project and rebuild the site.");
         }
 
+        await response.EnsureCapabilityEnabledAsync(ct);
         response.EnsureSuccessStatusCode();
         response.EnsureNotBootstrapping();
 

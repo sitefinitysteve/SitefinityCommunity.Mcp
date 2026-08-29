@@ -45,6 +45,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpPermissionsResponse Get(GetObjectPermissions request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Permissions);
+
             if (string.IsNullOrWhiteSpace(request.Identifier))
             {
                 throw HttpError.BadRequest("Identifier is required (a page identifier or a content item Guid).");

@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using SitefinityCommunity.Mcp.Configuration;
 using SitefinityCommunity.Mcp.Extensions;
+using SitefinityCommunity.Mcp.Models;
 
 namespace SitefinityCommunity.Mcp.Services;
 
@@ -34,6 +36,13 @@ public interface IApiKeyValidationService
     Task<ApiKeyValidationResult> ValidateAsync(string? environmentName = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns the per-capability roster the plugin reported on its last successful ping.
+    /// Returns <c>null</c> when the roster is unknown — Sitefinity is unreachable, or the installed
+    /// plugin predates the roster. Callers must treat null as "everything enabled".
+    /// </summary>
+    Task<FeatureRoster?> GetFeaturesAsync(string? environmentName = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Removes the cached validation result for the given environment (or default).
     /// Call this when a data request fails with HTML, indicating Sitefinity restarted
     /// and the previously cached "Valid" result is stale.
@@ -51,7 +60,7 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
     private readonly IEnvironmentResolver _resolver;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ApiKeyValidationService> _logger;
-    private readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, DateTime ExpiresAt)> _cache = new();
+    private readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, FeatureRoster? Features, DateTime ExpiresAt)> _cache = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan UnreachableCacheDuration = TimeSpan.FromSeconds(15);
 
@@ -75,12 +84,23 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
             return cached.Result;
         }
 
-        var result = await PingAsync(config, ct);
+        var (result, features) = await PingAsync(config, ct);
 
         var ttl = result == ApiKeyValidationResult.Unreachable ? UnreachableCacheDuration : CacheDuration;
-        this._cache[name] = (result, DateTime.UtcNow.Add(ttl));
+        this._cache[name] = (result, features, DateTime.UtcNow.Add(ttl));
 
         return result;
+    }
+
+    public async Task<FeatureRoster?> GetFeaturesAsync(string? environmentName = null, CancellationToken ct = default)
+    {
+        // Reuses the validation cache, so the roster costs nothing beyond the ping the tool filter
+        // already performs. A validation failure leaves Features null and the caller falls open.
+        await this.ValidateAsync(environmentName, ct);
+
+        var (name, _) = this._resolver.Resolve(environmentName);
+
+        return this._cache.TryGetValue(name, out var cached) ? cached.Features : null;
     }
 
     public void InvalidateCache(string? environmentName = null)
@@ -89,7 +109,8 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
         this._cache.TryRemove(name, out _);
     }
 
-    private async Task<ApiKeyValidationResult> PingAsync(EnvironmentConfig config, CancellationToken ct)
+    private async Task<(ApiKeyValidationResult Result, FeatureRoster? Features)> PingAsync(
+        EnvironmentConfig config, CancellationToken ct)
     {
         try
         {
@@ -107,32 +128,51 @@ public sealed class ApiKeyValidationService : IApiKeyValidationService
                     this._logger.LogDebug(
                         "Ping returned HTML or redirected to bootstrap page for {Url} — site is still starting",
                         config.Url);
-                    return ApiKeyValidationResult.Unreachable;
+                    return (ApiKeyValidationResult.Unreachable, null);
                 }
 
                 this._logger.LogDebug("API key validated for {Url}", config.Url);
-                return ApiKeyValidationResult.Valid;
+                return (ApiKeyValidationResult.Valid, await ReadFeaturesAsync(response, config, ct));
             }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
                 this._logger.LogWarning("API key rejected by {Url} (HTTP {StatusCode})", config.Url, (int)response.StatusCode);
-                return ApiKeyValidationResult.InvalidKey;
+                return (ApiKeyValidationResult.InvalidKey, null);
             }
 
             // Any other status (404, 500, etc.) — treat as unreachable
             this._logger.LogWarning("Unexpected response from {Url}/RestApi/mcp/ping: HTTP {StatusCode}", config.Url, (int)response.StatusCode);
-            return ApiKeyValidationResult.Unreachable;
+            return (ApiKeyValidationResult.Unreachable, null);
         }
         catch (TaskCanceledException)
         {
             this._logger.LogWarning("API key validation timed out for {Url}", config.Url);
-            return ApiKeyValidationResult.Unreachable;
+            return (ApiKeyValidationResult.Unreachable, null);
         }
         catch (HttpRequestException ex)
         {
             this._logger.LogWarning(ex, "Could not reach {Url} for API key validation", config.Url);
-            return ApiKeyValidationResult.Unreachable;
+            return (ApiKeyValidationResult.Unreachable, null);
+        }
+    }
+
+    /// <summary>
+    /// Reads the per-capability roster out of a successful ping. Plugin builds before 3.5.0 omit it;
+    /// a missing or unparsable roster returns null, which every caller treats as "all enabled".
+    /// </summary>
+    private async Task<FeatureRoster?> ReadFeaturesAsync(
+        HttpResponseMessage response, EnvironmentConfig config, CancellationToken ct)
+    {
+        try
+        {
+            var ping = await response.Content.ReadFromJsonAsync<PingResponse>(SitefinityJsonOptions.Default, ct);
+            return ping?.Features;
+        }
+        catch (Exception ex)
+        {
+            this._logger.LogDebug(ex, "Could not read the MCP feature roster from {Url}; assuming all capabilities enabled", config.Url);
+            return null;
         }
     }
 }

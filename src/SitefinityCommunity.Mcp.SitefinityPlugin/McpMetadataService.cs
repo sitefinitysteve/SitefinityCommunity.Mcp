@@ -36,6 +36,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpSiteInfoResponse Get(GetSiteInfo request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var sfAssembly = typeof(SystemManager).Assembly.GetName();
 
             var response = new McpSiteInfoResponse
@@ -97,6 +99,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public List<McpModuleInfo> Get(ListModules request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var modules = new List<McpModuleInfo>();
 
             foreach (var kvp in SystemManager.ApplicationModules)
@@ -131,6 +135,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public List<McpDynamicTypeInfo> Get(ListDynamicTypes request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var result = new List<McpDynamicTypeInfo>();
 
             try
@@ -189,6 +195,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public List<McpDynamicFieldInfo> Get(GetTypeFields request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             if (string.IsNullOrWhiteSpace(request.TypeFullName))
             {
                 throw HttpError.BadRequest("TypeFullName is required.");
@@ -252,6 +260,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpModuleStructureResponse Get(GetModuleStructure request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             if (string.IsNullOrWhiteSpace(request.ModuleName))
             {
                 throw HttpError.BadRequest("ModuleName is required.");
@@ -586,6 +596,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpPageRoutesResponse Get(ListPageRoutes request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var response = new McpPageRoutesResponse();
 
             try
@@ -606,6 +618,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpApiRoutesResponse Get(ListApiRoutes request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var response = new McpApiRoutesResponse();
 
             try
@@ -667,6 +681,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpPageDetailsResponse Get(GetPageDetails request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             if (string.IsNullOrWhiteSpace(request.PageIdentifier))
             {
                 throw HttpError.BadRequest("PageIdentifier is required.");
@@ -820,6 +836,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpWidgetPropertiesResponse Get(GetWidgetProperties request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             if (string.IsNullOrWhiteSpace(request.WidgetId))
             {
                 throw HttpError.BadRequest("WidgetId is required.");
@@ -923,6 +941,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpTemplatesResponse Get(ListTemplates request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             var response = new McpTemplatesResponse();
 
             try
@@ -998,6 +1018,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpTaxonomiesResponse Get(ListTaxonomies request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             const int taxaPerTaxonomyCap = 50;
             var response = new McpTaxonomiesResponse();
 
@@ -1082,6 +1104,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpPageWidgetTreeResponse Get(GetPageWidgetTree request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Metadata);
+
             if (string.IsNullOrWhiteSpace(request.PageIdentifier))
             {
                 throw HttpError.BadRequest("PageIdentifier is required.");

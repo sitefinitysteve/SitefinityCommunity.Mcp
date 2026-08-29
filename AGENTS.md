@@ -101,7 +101,7 @@ SitefinityCommunity.Mcp/
     │
     └── SitefinityCommunity.Mcp.SitefinityPlugin/  ← SITEFINITY PLUGIN (source files)
         ├── McpInit.cs                 ← Registration (checks Enabled + ApiKey before registering)
-        ├── McpConfig.cs               ← Sitefinity config section (Admin > Advanced > McpSettings)
+        ├── McpConfig.cs               ← Config section + per-capability tool elements + McpCapabilities guard
         ├── McpApiKeyAttribute.cs      ← Request filter validating X-MCP-API-Key header
         ├── McpServicePlugin.cs        ← ServiceStack plugin registration
         ├── McpLogRequest.cs           ← Request/response DTOs (logs + metadata)
@@ -215,6 +215,17 @@ public sealed class MyNewTools
 1. Add a request DTO to `SitefinityPlugin/McpLogRequest.cs`
 2. Add a handler to `SitefinityPlugin/McpLogService.cs`
 3. Copy updated files to the installed location in the Sitefinity project
+
+### Step 4: Register the tool's capability (REQUIRED)
+
+**A new tool or endpoint is not accepted without its capability entry.** Every capability is admin-toggleable, so a tool that skips this is silently un-disableable. Four places, all small:
+
+1. **Config element** - a `McpToolElement` subclass (`Mcp<Name>ToolElement`, default `Enabled = true`) plus its typed `[ConfigurationProperty]` on `McpConfig`, both in `SitefinityPlugin/McpConfig.cs`. Reuse the existing element if the tool is backed by an existing plugin service.
+2. **Plugin guard** - `McpCapabilities.EnsureEnabled(McpCapabilities.<Name>)` as the first line of the handler, plus the name constant and the `IsEnabled` switch arm in `McpCapabilities` (also in `McpConfig.cs`).
+3. **Ping roster** - a property on `McpFeatureRoster` (`SitefinityPlugin/McpLogRequest.cs`), populated in `McpCapabilities.BuildRoster`, mirrored on `Models/FeatureRoster.cs` with a `true` default.
+4. **Tool -> capability map** - an entry in `CapabilityGate.ToolCapabilities` (and `AdminElementNames`) in `Services/CapabilityGate.cs`.
+
+Tools that work without a running Sitefinity (environment, status) and the log tools (which read the filesystem in local mode) are deliberately left out of the map - the plugin's 403 covers them in remote mode.
 
 ## How to Add a New Resource
 
@@ -346,7 +357,39 @@ The IIS request-rate series is split by mode: `RequestsPerMinute` in window mode
 
 **Redaction + matching order.** Everything outbound goes through `McpSecretRedactor`. Query strings are additionally split into `name=value` pairs and deny-list-checked per parameter name (`McpSecretRedactor.IsDeniedKey`) before the whole string is pattern-scanned. `cs(Cookie)` and `cs(Authorization)` are **never read at all** — a redacted credential is still credential-shaped. `cs-username` and `c-ip` are retained deliberately (documented in both READMEs): correlating an outage to who was hitting what is the point. The `Query` filter matches **after** redaction, mirroring `McpFormsService.SearchTerm`, so it cannot be used as an oracle for redacted values.
 
-**OS permissions.** Reading the event logs needs the app pool identity in the local **Event Log Readers** group; the IIS and HTTPERR folders need read ACLs. Every failure path produces a warning carrying the exact `icacls` / `net localgroup` command rather than an error. The IIS folder is derived from `HostingEnvironment.ApplicationID` (`/LM/W3SVC/{id}/ROOT`, parsed defensively) and overridable via `McpConfig.IisLogPath`.
+**OS permissions.** Reading the event logs needs the app pool identity in the local **Event Log Readers** group; the IIS and HTTPERR folders need read ACLs. Every failure path produces a warning carrying the exact `icacls` / `net localgroup` command rather than an error. The IIS folder is derived from `HostingEnvironment.ApplicationID` (`/LM/W3SVC/{id}/ROOT`, parsed defensively) and overridable via `McpConfig.Incident.IisLogPath` (Admin > Advanced > McpSettings > Incident > IIS Log Path).
+
+### Per-Capability Toggles (Admin > Advanced > McpSettings)
+
+Every capability area can be switched off independently by a Sitefinity administrator. **All of them default to enabled**, so upgrading an existing install changes nothing until someone unchecks something.
+
+**The plugin is the security boundary; the ping roster is a courtesy.**
+
+1. **Plugin (authoritative)** - each capability is a nested `ConfigElement` on `McpConfig`, and every service handler calls `McpCapabilities.EnsureEnabled(McpCapabilities.<Name>)` as its **first line**. When off it throws an HTTP 403 carrying a structured body `{ Disabled: "<capability>", Reason: "Disabled by the administrator in Sitefinity Admin > Advanced > McpSettings." }`.
+2. **MCP server (advisory)** - `GET /mcp/ping` returns a `Features` roster; `ApiKeyValidationService` caches it alongside the existing key-validation result (same TTLs), and the `CallToolFilter` refuses a disabled tool up front via `CapabilityGate.CheckTool` with "This tool is disabled by the Sitefinity administrator (Admin > Advanced > McpSettings > <element>)" - no network call. A stale roster can never grant access, because the plugin re-checks on every request.
+
+**Fail open, never closed.** A missing or unreadable config section is treated as "everything enabled" (`McpCapabilities.TryGetConfig` swallows and returns null; `IsEnabled` and `BuildRoster` default to true). A configuration read error must not silently disable a working install. Likewise, a ping response with **no** `Features` object (any plugin build before 3.5.0) means "roster unknown" -> every tool proceeds, so the server stays fully backwards compatible.
+
+**`/mcp/ping` is deliberately NOT capability-gated** - it is how the server learns what is off, so it must answer even when everything else is disabled.
+
+**Config elements** (all in `McpConfig.cs` - this feature added **no** new plugin source files):
+
+| Element | Class | Gates |
+|---------|-------|-------|
+| Logs | `McpLogsToolElement` | `McpLogService` (all log endpoints) |
+| Metadata | `McpMetadataToolElement` | `McpMetadataService` - site info, modules, dynamic types, routes, pages, widgets, templates, taxonomies |
+| Content | `McpContentToolElement` | `McpContentService` |
+| Forms | `McpFormsToolElement` | `McpFormsService` |
+| Config Reader | `McpConfigReaderToolElement` | `McpConfigService` + `McpSettingsSearchService` |
+| Where Used | `McpWhereUsedToolElement` | `McpWhereUsedService` |
+| Permissions | `McpPermissionsToolElement` | `McpPermissionsService` |
+| Incident | `McpIncidentToolElement` | `McpSystemLogService` - plus `AllowIisLogs` / `AllowEventLogs` / `AllowHttpErr` and the `IisLogPath` override |
+
+Maintenance needs no element - `AllowWriteOperations` already gates it, and the roster reports it as `Maintenance` so the same pre-block message applies.
+
+**Element design rules.** Every capability gets its **own named class** deriving from the abstract `McpToolElement` base (which carries only `Enabled`), even when it adds nothing today - that gives each tool a natural home for a future setting without a config migration. Granularity follows the **plugin service boundary**: tools backed by one service (the log trio, the metadata family) share one element; don't split finer. Keep the number of settings small - `Enabled` only, unless a tool has a genuine knob (`Incident`'s three source flags and `IisLogPath` are the proof case).
+
+**Incident source flags degrade, they don't fail.** When `Incident.Enabled` is false the endpoint 403s like any other capability. When it's on but a source flag is off, that source is skipped and a `Warnings` entry is added ("IIS source disabled by administrator (McpSettings > Incident > Allow IIS Logs).") - the same shape as the existing ACL-denied warnings. `ParseSources` applies the flags for window and search modes; `RunDiscovery` applies them directly because it bypasses `ParseSources`.
 
 ### Write Operations (Cache Clear / Recycle)
 
@@ -366,18 +409,18 @@ Both must opt in. Cache APIs vary across Sitefinity versions, so `McpMaintenance
 | `ILogProvider` | `LocalLogProvider` / `RemoteLogProvider` | List, read, search log files |
 | `LogParsingService` | (concrete) | Parse Sitefinity log format into structured entries |
 | `ISitefinityStatusService` | `SitefinityStatusService` | Check if Sitefinity is bootstrapped; `WaitForReadyAsync` polls until ready or timeout |
-| `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint |
+| `IApiKeyValidationService` | `ApiKeyValidationService` | Validate API keys via ping endpoint; caches the per-capability feature roster (`GetFeaturesAsync`) |
 | `ISitefinityMetadataService` | `SitefinityMetadataService` | Fetch site info, modules, dynamic types, fields, config sections, where-used, permissions, incident windows; clear cache / recycle |
 | `IHttpClientFactory` | (framework) | Create HTTP clients for remote calls |
 | `SitefinityMcpConfig` | (concrete) | Loaded config singleton |
 
 ## Plugin Endpoint Reference
 
-All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribute.
+All endpoints require `X-MCP-API-Key` header. Protected by `[McpApiKey]` attribute. Every endpoint except `/mcp/ping` is additionally gated by its capability toggle (see **Per-Capability Toggles**) and returns HTTP 403 with a `{ Disabled, Reason }` body when switched off.
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok" }` |
+| `/mcp/ping` | GET | Lightweight key validation — returns `{ status: "ok", features: { … } }`. The `features` roster reports each capability's Enabled state (plus `Maintenance` = Allow Write Operations, and Incident's three source flags). **Never capability-gated** — it is how the MCP server learns what is off |
 | `/mcp/logs` | GET | List all log files with metadata |
 | `/mcp/logs/{FileName}` | GET | Read a log file (optional `MaxLines` query param) |
 | `/mcp/logs/search` | POST | Search logs with a regex pattern. Searches `*.log` files **newest-first** and stops after `MaxMatches` hits (default 200, max 1000) so large prod log sets don't time the client out. Optional `FileName` restricts the search to a single file (e.g. `Error.log`). Streams each file line-by-line — flat memory regardless of file size |

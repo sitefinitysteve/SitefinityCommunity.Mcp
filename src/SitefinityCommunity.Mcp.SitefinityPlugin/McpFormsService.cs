@@ -31,6 +31,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpFormsResponse Get(ListForms request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Forms);
+
             var response = new McpFormsResponse();
 
             try
@@ -82,6 +84,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpFormFieldsResponse Get(GetFormFields request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Forms);
+
             if (string.IsNullOrWhiteSpace(request.FormIdentifier))
             {
                 throw HttpError.BadRequest("FormIdentifier is required.");
@@ -190,6 +194,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpFormResponsesResponse Get(ListFormResponses request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Forms);
+
             if (string.IsNullOrWhiteSpace(request.FormIdentifier))
             {
                 throw HttpError.BadRequest("FormIdentifier is required.");

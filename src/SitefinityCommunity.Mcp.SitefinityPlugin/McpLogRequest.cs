@@ -58,6 +58,103 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     public class McpPingResponse
     {
         public string Status { get; set; }
+
+        /// <summary>
+        /// Per-capability roster reflecting Admin &gt; Advanced &gt; McpSettings. Older plugin
+        /// builds omit this; MCP servers treat a missing roster as "everything enabled".
+        /// </summary>
+        public McpFeatureRoster Features { get; set; }
+    }
+
+    /// <summary>
+    /// Which MCP capability areas are currently switched on. Advisory only — the plugin
+    /// enforces the same flags on every request via <c>McpCapabilities.EnsureEnabled</c>.
+    /// </summary>
+    public class McpFeatureRoster
+    {
+        /// <summary>Sitefinity log endpoints.</summary>
+        public bool Logs { get; set; }
+
+        /// <summary>Site info, modules, dynamic types, routes, pages, widgets, templates, taxonomies.</summary>
+        public bool Metadata { get; set; }
+
+        /// <summary>Live content queries.</summary>
+        public bool Content { get; set; }
+
+        /// <summary>Form definitions and submissions.</summary>
+        public bool Forms { get; set; }
+
+        /// <summary>Configuration section reader and advanced-settings search.</summary>
+        public bool ConfigReader { get; set; }
+
+        /// <summary>Reverse lookup of widget / content / template usage.</summary>
+        public bool WhereUsed { get; set; }
+
+        /// <summary>Effective permissions reader.</summary>
+        public bool Permissions { get; set; }
+
+        /// <summary>Cache clear / application recycle. Mirrors <c>McpConfig.AllowWriteOperations</c>.</summary>
+        public bool Maintenance { get; set; }
+
+        /// <summary>Incident forensics, plus its three OS-level source flags.</summary>
+        public McpIncidentFeatures Incident { get; set; }
+
+        /// <summary>
+        /// Creates a roster with every capability enabled — the shipped default.
+        /// </summary>
+        public McpFeatureRoster()
+        {
+            this.Logs = true;
+            this.Metadata = true;
+            this.Content = true;
+            this.Forms = true;
+            this.ConfigReader = true;
+            this.WhereUsed = true;
+            this.Permissions = true;
+            this.Maintenance = false;
+            this.Incident = new McpIncidentFeatures();
+        }
+    }
+
+    /// <summary>
+    /// Incident capability state: whether the endpoint is on, and which OS-level sources it may read.
+    /// </summary>
+    public class McpIncidentFeatures
+    {
+        /// <summary>Whether the incident endpoint is reachable at all.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Whether the IIS W3C access log may be scanned.</summary>
+        public bool AllowIisLogs { get; set; }
+
+        /// <summary>Whether the Windows Application and System event logs may be read.</summary>
+        public bool AllowEventLogs { get; set; }
+
+        /// <summary>Whether the http.sys HTTPERR logs may be read.</summary>
+        public bool AllowHttpErr { get; set; }
+
+        /// <summary>
+        /// Creates the incident feature state with everything enabled — the shipped default.
+        /// </summary>
+        public McpIncidentFeatures()
+        {
+            this.Enabled = true;
+            this.AllowIisLogs = true;
+            this.AllowEventLogs = true;
+            this.AllowHttpErr = true;
+        }
+    }
+
+    /// <summary>
+    /// Body returned with HTTP 403 when a capability has been switched off by an administrator.
+    /// </summary>
+    public class McpCapabilityDisabledResponse
+    {
+        /// <summary>Name of the disabled capability (e.g. <c>Forms</c>).</summary>
+        public string Disabled { get; set; }
+
+        /// <summary>Human-readable explanation pointing at the admin screen.</summary>
+        public string Reason { get; set; }
     }
 
 

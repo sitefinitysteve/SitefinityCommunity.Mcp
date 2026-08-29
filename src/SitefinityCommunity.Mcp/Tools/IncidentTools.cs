@@ -45,7 +45,10 @@ public sealed class IncidentTools
                  "matching requests at ALL status codes, not just 5xx, while the aggregates still cover the " +
                  "whole window). Query is a case-insensitive plain substring, never a regex, and is matched " +
                  "AFTER secret redaction, so it cannot be used to probe for redacted values. Client IPs and " +
-                 "IIS usernames ARE returned deliberately — they are what makes correlation possible.")]
+                 "IIS usernames ARE returned deliberately — they are what makes correlation possible.\n\n" +
+                 "Individual sources (IIS, Event Log, HTTPERR) can be switched off by the Sitefinity " +
+                 "administrator; a disabled source is skipped and reported in Warnings rather than failing " +
+                 "the call, so always read Warnings before concluding a source was silent.")]
     public async Task<IncidentResponse> InvestigateIncident(
         [Description("The moment to centre the window on: \"11:00\", \"2026-08-27 11:00\", or full ISO 8601. " +
                      "Without an explicit offset or trailing Z it is read as SERVER-local time. " +

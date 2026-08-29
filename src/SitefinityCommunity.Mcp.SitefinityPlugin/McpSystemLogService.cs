@@ -144,6 +144,8 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// </summary>
         public McpIncidentResponse Get(GetIncidentWindow request)
         {
+            McpCapabilities.EnsureEnabled(McpCapabilities.Incident);
+
             // One scan at a time per app domain. A log sweep is IO-heavy and deliberately unthrottled
             // within its budget; two of them racing would double the disk pressure on a site that is, by
             // definition, already having a bad day.
@@ -376,18 +378,33 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
             var signals = new List<DiscoverySignal>();
 
-            if (!budget.Expired)
+            // Discovery bypasses ParseSources (it never scans IIS), so the admin source flags are
+            // applied here directly. Same contract: a disabled source is skipped with a warning.
+            bool allowIis, allowEventLog, allowHttpErr;
+            McpCapabilities.GetIncidentSourceFlags(out allowIis, out allowEventLog, out allowHttpErr);
+
+            if (!allowEventLog)
+            {
+                response.Warnings.Add("Event Log source disabled by administrator (McpSettings > Incident > Allow Event Logs).");
+            }
+
+            if (!allowHttpErr)
+            {
+                response.Warnings.Add("HTTPERR source disabled by administrator (McpSettings > Incident > Allow HTTP Err).");
+            }
+
+            if (allowEventLog && !budget.Expired)
             {
                 response.ScannedSources.Add("eventlog");
                 DiscoverEventSignals("Application", startUtc, endUtc, signals, response.Warnings, budget);
             }
 
-            if (!budget.Expired)
+            if (allowEventLog && !budget.Expired)
             {
                 DiscoverEventSignals("System", startUtc, endUtc, signals, response.Warnings, budget);
             }
 
-            if (!budget.Expired)
+            if (allowHttpErr && !budget.Expired)
             {
                 response.ScannedSources.Add("httperr");
                 DiscoverHttpErrSignals(startUtc, endUtc, signals, response.Warnings, budget);
@@ -912,31 +929,65 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "sitefinity", "iis", "eventlog", "httperr" };
 
+            HashSet<string> selected;
+
             if (string.IsNullOrWhiteSpace(raw))
             {
-                return all;
+                selected = all;
+            }
+            else
+            {
+                selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var token in raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var name = token.Trim();
+
+                    if (all.Contains(name))
+                    {
+                        selected.Add(name.ToLowerInvariant());
+                    }
+                    else
+                    {
+                        warnings.Add("Unknown source '" + name + "' ignored. Valid values: sitefinity, iis, eventlog, httperr.");
+                    }
+                }
+
+                if (selected.Count == 0)
+                {
+                    warnings.Add("No valid sources were requested; collecting all four.");
+                    selected = all;
+                }
             }
 
-            var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            return ApplyAdminSourceFlags(selected, warnings);
+        }
 
-            foreach (var token in raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+        /// <summary>
+        /// Drops any OS-level source the administrator has switched off in
+        /// Admin &gt; Advanced &gt; McpSettings &gt; Incident, recording a warning for each one.
+        /// Mirrors the ACL-denied warning pattern: the scan proceeds without the source rather
+        /// than failing. The Sitefinity log source has no separate flag — the whole Incident
+        /// capability toggle covers it.
+        /// </summary>
+        private static HashSet<string> ApplyAdminSourceFlags(HashSet<string> selected, List<string> warnings)
+        {
+            bool allowIis, allowEventLog, allowHttpErr;
+            McpCapabilities.GetIncidentSourceFlags(out allowIis, out allowEventLog, out allowHttpErr);
+
+            if (!allowIis && selected.Remove("iis"))
             {
-                var name = token.Trim();
-
-                if (all.Contains(name))
-                {
-                    selected.Add(name.ToLowerInvariant());
-                }
-                else
-                {
-                    warnings.Add("Unknown source '" + name + "' ignored. Valid values: sitefinity, iis, eventlog, httperr.");
-                }
+                warnings.Add("IIS source disabled by administrator (McpSettings > Incident > Allow IIS Logs).");
             }
 
-            if (selected.Count == 0)
+            if (!allowEventLog && selected.Remove("eventlog"))
             {
-                warnings.Add("No valid sources were requested; collecting all four.");
-                return all;
+                warnings.Add("Event Log source disabled by administrator (McpSettings > Incident > Allow Event Logs).");
+            }
+
+            if (!allowHttpErr && selected.Remove("httperr"))
+            {
+                warnings.Add("HTTPERR source disabled by administrator (McpSettings > Incident > Allow HTTP Err).");
             }
 
             return selected;
@@ -1692,9 +1743,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             {
                 var config = Config.Get<McpConfig>();
 
-                if (config != null && !string.IsNullOrWhiteSpace(config.IisLogPath))
+                if (config != null && !string.IsNullOrWhiteSpace(config.Incident.IisLogPath))
                 {
-                    return config.IisLogPath.Trim();
+                    return config.Incident.IisLogPath.Trim();
                 }
             }
             catch (Exception ex)

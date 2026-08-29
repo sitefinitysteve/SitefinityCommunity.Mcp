@@ -133,6 +133,16 @@ builder.Services
                     IsError = true
                 };
             }
+            catch (SitefinityCapabilityDisabledException ex)
+            {
+                // Covers a stale roster, a setting changed mid-session, and remote-mode log tools
+                // (never pre-blocked, because in local mode they read the filesystem).
+                return new CallToolResult
+                {
+                    Content = [new TextContentBlock { Text = ex.Message }],
+                    IsError = true
+                };
+            }
         }
 
         var result = await validator.ValidateAsync(targetEnvironment, cancellationToken);
@@ -207,6 +217,21 @@ builder.Services
             combined.AddRange(innerResult.Content);
             innerResult.Content = combined;
             return innerResult;
+        }
+
+        // Per-capability roster (Admin > Advanced > McpSettings). Courtesy layer only — the plugin
+        // enforces the same flags on every request — but it saves a round trip and gives a clearer
+        // message than a bare 403. A null roster (older plugin) means everything is enabled.
+        var features = await validator.GetFeaturesAsync(targetEnvironment, cancellationToken);
+        var disabledMessage = CapabilityGate.CheckTool(context.Params.Name, features);
+
+        if (disabledMessage is not null)
+        {
+            return new CallToolResult
+            {
+                Content = [new TextContentBlock { Text = disabledMessage }],
+                IsError = true
+            };
         }
 
         return await InvokeWithBootstrapGuard();
