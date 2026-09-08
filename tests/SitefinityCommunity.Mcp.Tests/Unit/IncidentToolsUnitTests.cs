@@ -106,7 +106,7 @@ public sealed class IncidentToolsUnitTests
                                 Status = 503,
                                 SubStatus = 2,
                                 UriStem = "/api/orders",
-                                UserName = "steve@medportal.ca",
+                                UserName = "jane.doe@example.com",
                                 ClientIp = "10.0.0.5",
                                 TimeTakenMs = 30000,
                             },
@@ -130,7 +130,7 @@ public sealed class IncidentToolsUnitTests
                                         EventId = 5011,
                                         Level = "Error",
                                         ProviderName = "Microsoft-Windows-WAS",
-                                        Message = "A process serving application pool 'Medportal' terminated unexpectedly.",
+                                        Message = "A process serving application pool 'ExampleSite' terminated unexpectedly.",
                                     },
                                 ],
                             },
@@ -162,7 +162,7 @@ public sealed class IncidentToolsUnitTests
         Assert.Contains("5011", json);
         Assert.Contains("AppOffline", json);
         // Usernames and client IPs are deliberately retained.
-        Assert.Contains("steve@medportal.ca", json);
+        Assert.Contains("jane.doe@example.com", json);
         Assert.Contains("10.0.0.5", json);
 
         // Regression: these were DateTime properties, which ServiceStack serializes as /Date(ms)/ — an
@@ -199,7 +199,7 @@ public sealed class IncidentToolsUnitTests
                             {
                                 Status = 500,
                                 UriStem = "/appstatus",
-                                Referer = "https://dev.medportal.ca/ug/macdot",
+                                Referer = "https://dev.example.com/some/page",
                             },
                         ],
                     },
@@ -215,7 +215,7 @@ public sealed class IncidentToolsUnitTests
 
         // Referer is surfaced so a query that matched via the referer is explicable rather than
         // looking like a false positive.
-        Assert.Equal("https://dev.medportal.ca/ug/macdot", iis.ServerErrors[0].Referer);
+        Assert.Equal("https://dev.example.com/some/page", iis.ServerErrors[0].Referer);
     }
 
     [Fact]
@@ -262,10 +262,10 @@ public sealed class IncidentToolsUnitTests
                 Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new IncidentResponse { Mode = "window", Window = new IncidentWindowResponse() });
 
-        await tools.InvestigateIncident("11:00", 45, "steve@medportal.ca", 24, "iis,eventlog", "staging");
+        await tools.InvestigateIncident("11:00", 45, "jane.doe@example.com", 24, "iis,eventlog", "staging");
 
         await mock.Received(1).GetIncidentWindowAsync(
-            "11:00", 45, 24, "steve@medportal.ca", "iis,eventlog", "staging", Arg.Any<CancellationToken>());
+            "11:00", 45, 24, "jane.doe@example.com", "iis,eventlog", "staging", Arg.Any<CancellationToken>());
     }
 
     // ── Discovery mode ───────────────────────────────────────────
@@ -330,7 +330,7 @@ public sealed class IncidentToolsUnitTests
                 Mode = "search",
                 Search = new IncidentSearchResponse
                 {
-                    Query = "steve@medportal.ca",
+                    Query = "jane.doe@example.com",
                     LookbackHours = 72,
                     ScannedSources = ["sitefinity", "iis", "eventlog", "httperr"],
                     Iis = new IncidentIisSection
@@ -345,14 +345,14 @@ public sealed class IncidentToolsUnitTests
                             {
                                 Status = 200,
                                 UriStem = "/account/profile",
-                                UserName = "steve@medportal.ca",
+                                UserName = "jane.doe@example.com",
                                 ClientIp = "10.0.0.5",
                             },
                             new IisRequestEntry
                             {
                                 Status = 500,
                                 UriStem = "/api/orders",
-                                UserName = "steve@medportal.ca",
+                                UserName = "jane.doe@example.com",
                                 ClientIp = "10.0.0.5",
                             },
                         ],
@@ -361,7 +361,7 @@ public sealed class IncidentToolsUnitTests
                 },
             });
 
-        var result = await tools.InvestigateIncident(query: "steve@medportal.ca");
+        var result = await tools.InvestigateIncident(query: "jane.doe@example.com");
 
         Assert.Equal("search", result.Mode);
         Assert.NotNull(result.Search);
@@ -387,7 +387,7 @@ public sealed class IncidentToolsUnitTests
                 Mode = "window",
                 Window = new IncidentWindowResponse
                 {
-                    Query = "steve@medportal.ca",
+                    Query = "jane.doe@example.com",
                     Iis = new IncidentIisSection
                     {
                         Available = true,
@@ -397,13 +397,13 @@ public sealed class IncidentToolsUnitTests
                         MatchedCount = 4,
                         MatchedRequests =
                         [
-                            new IisRequestEntry { Status = 200, UriStem = "/account", UserName = "steve@medportal.ca" },
+                            new IisRequestEntry { Status = 200, UriStem = "/account", UserName = "jane.doe@example.com" },
                         ],
                     },
                 },
             });
 
-        var result = await tools.InvestigateIncident("11:00", query: "steve@medportal.ca");
+        var result = await tools.InvestigateIncident("11:00", query: "jane.doe@example.com");
 
         Assert.Equal("window", result.Mode);
         Assert.Equal(412, result.Window!.Iis!.TotalRequests);

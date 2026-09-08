@@ -783,7 +783,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string ControllerName { get; set; }
         public string ObjectType { get; set; }
 
-        /// <summary>"medportal", "sitefinity", or "unknown" — provenance of the matched widget.</summary>
+        /// <summary>"custom", "sitefinity", or "unknown" — provenance of the matched widget by its controller/type namespace.</summary>
         public string Origin { get; set; }
         public string PlaceHolder { get; set; }
 

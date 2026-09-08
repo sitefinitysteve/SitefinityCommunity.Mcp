@@ -2,6 +2,16 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **`sitefinity_where_used` widget `Origin`** now reports `"custom"` for any widget whose controller/type namespace is not Sitefinity's own (`Telerik.Sitefinity.*`, `Progress.Sitefinity.*`), `"sitefinity"` for the platform's, and `"unknown"` only when no type is present. The previous build hard-coded one site's namespace and labelled everything else `"unknown"`.
+- **Skills**: `sitefinity-database-structure` rewritten from a three-way verification on Sitefinity 15.4.8636 (decompiled OpenAccess mappings, a production database, and the platform code paths) with a column-by-column relationship map and re-runnable verification queries under `reference/`; companion page skills corrected (the schema has FKs, but only on structural tables; form controls use `content_id` / `id3`; what a version snapshot restores). Example emails and site names in docs and tests replaced with neutral placeholders.
+- **`sitefinity-adminapp-extensions`** rewritten from the compiled 15.4 AdminApp host bundle and a decompile of `Telerik.Sitefinity.AdminBridge.dll`: how bundles are discovered, concatenated (file-name order), cached and served (`/admin-bridge/extensions`, `sf:DisableAdminAppExtensionsCache`); the full v1 extension-point surface (fields, widget designers, commands, columns, item hooks, field bindings, editor, selectors, notifications, themes, tree, DAM); `FieldBase` as it really is; the `shortText` vs `shortTextDefault` rule and the 34 `FieldTypes` members the 15.3 typings lack; the `widget-undefined` key for complex sub-fields; `HTTP_PREFIX` as the `sfprefix` sentinel; and where the official samples repo is stale.
+- **`sitefinity-widget-expert`** gains a verified routing section: how extra URL segments start as an implicit 404, which mechanisms mark them resolved (`[RelativeRoute]`, `IRouteMapper`, convention dispatch, `RouteHelper.SetUrlParametersResolved`), why `HttpNotFound()` matters, and how `ViewBag.Title` / `MetadataFields` + `PageTitleMode` become the page title.
+- **Skill consolidation (18 -> 17).** `sitefinity-toolbox-icons` is folded into `sitefinity-widget-expert` as its "Toolbox icons" section (icon classes, verification, page-editor MVC badge CSS). `sitefinity-widget-expert` no longer duplicates the attribute catalogue - its fifteen attribute sections are replaced by a one-screen working set that points at `sitefinity-designer-attributes`, which now links back. Removes ~200 lines that had already drifted between the two files. Every toolbox icon class now carries a description of what its tile actually shows (all 57 tiles inspected on a contact sheet rendered from `sfWidgetsIcons.gif` + `Dock.css` offsets), grouped by what a widget *does* rather than by Sitefinity's original module, with the labelled sheet shipped as `reference/toolbox-icons-sheet.png`.
+
 ## [3.6.0] — 2026-08-28
 
 ### Added

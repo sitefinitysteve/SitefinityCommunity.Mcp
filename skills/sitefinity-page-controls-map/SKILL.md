@@ -21,7 +21,10 @@ Each row represents a control (widget) placed on a page.
 |--------|------|---------|
 | `id` | uniqueidentifier (PK) | Internal GUID — the true control identity |
 | `object_type` | varchar(510) | The .NET type. Classic MVC widgets use `Telerik.Sitefinity.Mvc.Proxy.MvcControllerProxy` (Feather dynamic widgets use `MvcWidgetProxy`). Old rows can carry assembly-qualified names — match with `LIKE`, never equality |
-| `page_id` | uniqueidentifier | The OWNER — polymorphic, no FK constraint: `sf_page_data.content_id` (live page controls), `sf_draft_pages.id` (draft controls — typically the majority of rows), or `sf_page_templates.id` (template controls) |
+| `page_id` | uniqueidentifier | The OWNER — polymorphic, no FK constraint: `sf_page_data.content_id` (live page controls), `sf_draft_pages.id` (page-draft and template-draft controls — typically the majority of rows), or `sf_page_templates.id` (template controls). NULL for form fields and nested objects (next two rows) |
+| `content_id` | uniqueidentifier | Owner for **form fields** (`FormControl`): `sf_form_description.content_id`. Not used by page controls |
+| `id3` | uniqueidentifier | Owner for **form-draft fields** (`FormDraftControl`): `sf_draft_pages.id`. Not used by page controls |
+| `voa_class` | int | OpenAccess discriminator for the seven CLR families sharing this table (PageControl, PageDraftControl, TemplateControl, TemplateDraftControl, FormControl, FormDraftControl, nested ObjectData). Opaque per database — discover with `GROUP BY voa_class` |
 | `place_holder` | varchar(255) | Which placeholder the control sits in (e.g. `Body`, `C050_Col00`) |
 | `caption_` | nvarchar(255) | Human-readable label (e.g. "Spotlight", "Content block", "grid-8+4") |
 | `is_layout_control` | tinyint | 1 = layout/grid control, 0 = content widget |
@@ -255,7 +258,8 @@ sf_page_node (the page in the tree)
 **Important corrections to common assumptions:**
 - `sf_object_data.page_id` references `sf_page_data.content_id` (the PK — there is no `sf_page_data.id` column), or a draft, or a template. Classify the owner before concluding a widget "is on a page" — most `sf_object_data` rows belong to drafts that never render.
 - **Page drafts are NOT extra `sf_page_data` rows** — they live in the separate `sf_draft_pages` table. At rest a page has ONE `sf_page_data` row (status 0 or 2). If a node matches multiple status=2 rows, those are stale upgrade leftovers; only the row matched by `sf_page_node.content_id` is current — prefer that join over `page_node_id`.
-- None of these relationships are FK-enforced; dangling references occur in old databases.
+- None of these relationships are FK-enforced; dangling references occur in old databases. (The schema does carry FKs - 323 on a verified 15.4 database - but only on structural tables: subclass tables, `{table}_{field}` taxonomy junctions, `*_sf_permissions` joins. `sf_object_data` and `sf_control_properties` have none.)
+- **A page's widgets exist up to three times plus once per version snapshot**: live (`page_id` = `sf_page_data.content_id`), master draft (`is_temp_draft = 0`), temp draft (`is_temp_draft = 1`) - each with its own copy of the property tree. Draft copies point at their live twin through `original_control_id`; publish updates matched live rows in place, so live control ids are stable across ordinary edits. Version history (`sf_version_chnges.dta`) stores the draft's controls as a serialized blob, not as rows.
 
 ---
 

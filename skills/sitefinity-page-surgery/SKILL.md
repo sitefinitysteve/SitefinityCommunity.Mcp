@@ -7,7 +7,7 @@ You are an expert at writing safe Sitefinity page-migration code. Every behavior
 
 **Scope: classic ASP.NET pages with WebForms and MVC/Feather widgets** (`MvcControllerProxy`). Pages built for the ASP.NET Core renderer / decoupled frontend ("Sitefinity Core") use a different widget model (`renderer` column populated) - these recipes do not apply to them.
 
-**Version baseline: Sitefinity 15.4** - the API signatures and publish mechanics documented here are 15.4 behavior and may differ on older/newer versions (e.g. obsolete overloads removed, lifecycle internals reworked). Check the target project's version before writing migration code: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8630.0` = Sitefinity 15.4).
+**Version baseline: Sitefinity 15.4** - the API signatures and publish mechanics documented here are 15.4 behavior and may differ on older/newer versions (e.g. obsolete overloads removed, lifecycle internals reworked). Check the target project's version before writing migration code: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8636.0` = Sitefinity 15.4).
 
 ## The deliverable is CODE, not data edits
 
@@ -50,7 +50,7 @@ What each step really does (verified behavior of `PageManager` + `LifecycleDecor
 - **`PublishPageDraft(draft.Id, makeVisible)`**: the `makeVisible` overloads are marked `[Obsolete("The makeVisible attribute is not used anymore...")]` and the value is IGNORED. The call is exactly: temp draft -> `CheckIn(draft, culture, deleteTemp: false)` -> `Publish(masterDraft)`.
   - **CheckIn** copies temp -> master (Controls, TemplateId, LastControlId, Version, presentation), sets `PageData.Status = Master` (yes - the live row's status flips to 0 mid-flow and Publish flips it back to 2; a crash between the two strands the page unpublished), marks the master draft `Synced`, and with `deleteTemp: false` leaves the temp row in place. `PageManager.DeleteTempAfterPublish => false` in source - **temp drafts persist by design** in the pages module.
   - **Publish** guards concurrency: `if (pageData.Version > masterDraft.Version) throw ...PageModifiedBySomeoneElse`. Then: `PageData.Version++`, `Status = Live`, `Visible = true` (ALWAYS - publishing a never-published page makes it live, no opt-out), `LockedBy = Guid.Empty`, `ContentState = Published`, `PublicationDate` set on FIRST publish only, then copies master draft content onto the live row.
-  - **Control copy is a mirror-sync, not a wipe**: live controls matched by a draft control's `OriginalControlId` are updated IN PLACE (live control ids are stable across publishes); unmatched draft controls produce NEW live rows (and the draft control is back-stamped `OriginalControlId = newLiveId`); live rows referenced by no draft control are DELETED.
+  - **Control copy is a mirror-sync, not a wipe** (`ControlManager.CopyControls`, direction `CopyToOriginal`): for each draft control the live control whose `Id == draft.OriginalControlId` is updated IN PLACE (live control ids are stable across publishes); unmatched draft controls produce NEW live rows (and the draft control is back-stamped `OriginalControlId = newLiveId`); live rows referenced by no draft control are DELETED with their property subtree; `ParentId` links between controls are remapped through the same id map. `CopyDirection.Unspecified` (used by page copy/duplicate, not by publish) deletes every target control first and recreates them all.
 
 ### Versioning (the bug class to avoid)
 
@@ -58,6 +58,27 @@ What each step really does (verified behavior of `PageManager` + `LifecycleDecor
 
 - A service that publishes and then "annotates the latest version" without creating one first annotates whatever Change row already existed - possibly one the UI created years ago. **Create the version explicitly** (snippet above), then set `.Comment` on the returned `Change` and `SaveChanges()` on the VersionManager.
 - Version numbers are stored as `major * 10000 + minor` (`VersionDataProvider.BuildFullVersionNumber`); published versions increment the major (10000, 20000, ...), draft saves increment the minor. `Change.Version` returns the RAW multiplied value; the UI renders `major + "." + minor`.
+
+## Rollback: what a version snapshot really restores (decompiled 15.4, verified)
+
+The only supported rollback for a page migration is Sitefinity's own version history. Know exactly what it does before you rely on it:
+
+**What `CreateVersion(draft, pageDataId, ...)` captures** (`PageDraft.Serialize` -> `ControlData.Serialize` -> `ObjectData.Serialize`): the draft's scalar properties including `TemplateId`, `LastControlId`, `MasterPage` and `Flags`; every control with its `ObjectType`, `PlaceHolder`, `SiblingId`, `Caption`, `IsLayoutControl`, `BaseControlId`, `OriginalControlId`, `ParentId`, personalization fields, its full recursive `Properties` tree (Settings children, nested list items), its `Permissions` and `Presentation` entries. **Not captured**: the draft's `Id`/`Version`/`IsTempDraft`/`Status`/`Owner`, `Theme`, control `Id`s, and anything on `sf_page_node` (title, URL, parent, node permissions).
+
+**What a revert does** (`PagesService.CopyVersionToDraft`, the History UI's code path):
+
+1. `EditPage(pageDataId, lockIt: true)` - the usual temp draft.
+2. `VersionManager.GetSpecificVersion(draft, pageDataId, change.Version)` deserializes onto that draft: existing draft controls are removed from the ORM context, `Controls` is cleared, and NEW `PageDraftControl` objects are built from the snapshot (`ObjectData.Deserialize` starts with `Id = Guid.NewGuid()`). `OriginalControlId` comes from the snapshot, so on publish the mirror-sync still targets the same live control ids. `TemplateId` is set back to the snapshot's value.
+3. Control `Version` counters are re-stamped and `draft.Version++`, then `SaveChanges()`. **Nothing is published.** The reverted composition sits in the draft until someone publishes it (`PublishPageDraft` + `CreateVersion(isPublished: true)` again).
+
+Migration rules that follow:
+
+- **Take the pre-migration snapshot BEFORE the first mutation**, from the draft `EditPage` hands you, with `isPublished: false` (a minor version), and give it a searchable comment. It is the complete replayable record of the composition.
+- **Keep the old template alive** until every migrated page is verified. The snapshot stores `TemplateId` as a Guid; reverting to a snapshot whose template is gone yields a draft that points at nothing.
+- **Prefer in-place mutation** (rewrite properties, retarget the layout's `Layout` property, keep the row and its `ID`) over delete-and-recreate. In-place keeps `original_control_id` continuity, so a revert restores the live rows under the same ids and child placeholders (`Cnnn_ColNN`) keep resolving. Delete-and-recreate still reverts correctly, but the live controls come back under new ids (anything external that stored a control id - cache keys, personalization, analytics - loses its reference).
+- **Widget templates are separate**: a `ControlPresentation` (backend-edited widget template) has its own version history. A page revert restores the control's reference to it, not its markup.
+- **Verify a revert like a publish**: after the editor (or your code) publishes the reverted draft, run the post-change SQL below and confirm the live template, the control count per placeholder, and that no temp draft disagrees.
+- **A DB-level rollback is all-or-nothing.** Restoring individual rows by hand cannot reproduce the id remapping, the property subtrees, the L2 cache state, or the version rows; restore the whole database from backup or use version history - nothing in between.
 
 ## C# helpers for widget manipulation (platform-verified algorithms)
 

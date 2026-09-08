@@ -7,7 +7,7 @@ You are a Sitefinity POCO generator. Your job: take the output of the `sitefinit
 
 **Philosophy: `var dto = new MyTypeDto(dynamicItem)` gives you a fully populated object.** Taxonomy fields become rich objects (not bare Guids). Related images/documents become typed DTOs. Child types are recursively hydrated. The user can tweak from there.
 
-**Version baseline: Sitefinity 15.4** - API claims below (type locations, `GetRelatedItems` behavior) were verified against 15.4 assemblies. Check the target project's version before relying on version-sensitive details: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8630.0` = Sitefinity 15.4). For how dynamic content is physically stored (the `sf_dynamic_content` + per-type table split), see the companion skill `sitefinity-database-structure`.
+**Version baseline: Sitefinity 15.4 (build 15.4.8636)** - the API surface used below was re-verified against the decompiled 15.4 assemblies: `GetValue<TValue>(this IDynamicFieldsContainer, string)` / `GetString` / `SetValue` (`Telerik.Sitefinity.Model.DataExtensions`), `GetRelatedItems<T>(this object item, string fieldName) where T : IDataItem` (`Telerik.Sitefinity.RelatedData.RelatedDataExtensions`, alongside `GetRelatedParentItems<T>`, `CreateRelation`, `DeleteRelation`), `TaxonomyManager.GetTaxon<TTaxon>(Guid)`, `DynamicModuleManager.GetDataItems(Type)` / `GetChildItems(DynamicContent, Type)`, and `DynamicContent.SystemParentId` / `SystemParentItem`. Storage facts (master/live pairs, lifecycle-scoped `sf_content_link` rows, `parent_id` = `system_parent_id`) are verified in `sitefinity-database-structure`. Check the target project's version before relying on version-sensitive details: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8636.0` = Sitefinity 15.4). For how dynamic content is physically stored (the `sf_dynamic_content` + per-type table split), see the companion skill `sitefinity-database-structure`.
 
 ## Workflow
 
@@ -653,7 +653,8 @@ When the user asks "generate a POCO for the {ModuleName} module":
 ## What NOT to Do
 
 - **Don't add JSON attributes.** No `[JsonProperty]`, `[JsonPropertyName]`, `[DataMember]`, or serialization attributes.
-- **Don't use custom extension methods.** No project-specific helpers like `.GetTags()`, `.GetCategories()`, `.ToSitefinityUITime()`, `.ResolveLinks()`, `.ToItemViewModel()`. Only standard Sitefinity SDK APIs.
+- **Don't use custom extension methods.** No project-specific helpers like `.GetTags()`, `.GetCategories()`, `.ResolveLinks()`, `.ToItemViewModel()`. Only standard Sitefinity SDK APIs (`ToSitefinityUITime()` IS a platform API - `Telerik.Sitefinity.SystemExtensions` - but a DTO stores UTC and leaves UI-time conversion to the presenter).
+- **Don't generate a POCO when a Razor view is the only consumer.** Feather content widgets already hand views a `dynamic`-backed `ItemViewModel` (`Model.Fields.AnyField`, `RelatedItems("Field")`, `GetDateTime(...)`) that reads custom fields without a class - see the `ItemViewModel` section of `sitefinity-widget-expert`. POCOs are for data that leaves Razor: JSON islands, ServiceStack DTOs, tasks.
 - **Don't use `sealed`.** Use `public class`.
 - **Don't invent fields.** If the MCP output didn't list it, it doesn't exist.
 - **Don't silently swallow mapping ambiguities.** If `Choices` could be single or multi, document it.

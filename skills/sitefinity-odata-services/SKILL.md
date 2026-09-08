@@ -5,7 +5,7 @@ description: Use this skill when querying Sitefinity content over REST/OData, hi
 
 You are a Sitefinity built-in OData web services expert, targeting the frontend content API that Sitefinity exposes out of the box at `/api/default` on classic Sitefinity (.NET Framework 4.8, MVC / Feather-era sites). This is the zero-code path to read and query existing CMS content - native modules (news, events, media) and Module Builder dynamic types - over HTTP as OData v4. The facts below were verified against the Progress documentation; where a claim could not be confirmed in the docs it is flagged inline.
 
-**Version baseline: Sitefinity 15.4** - the default service, route names, and query surface are stable across the recent 13.x-15.x line, but the set of auto-exposed types and per-type options shift between releases, so verify on older versions. Check the target project's version: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8630.0` = Sitefinity 15.4).
+**Version baseline: Sitefinity 15.4** - the default service, route names, and query surface are stable across the recent 13.x-15.x line, but the set of auto-exposed types and per-type options shift between releases, so verify on older versions. Check the target project's version: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8636.0` = Sitefinity 15.4).
 
 ## Three API surfaces - pick the right one first
 

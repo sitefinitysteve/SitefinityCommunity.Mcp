@@ -7,7 +7,7 @@ You are a Sitefinity page and widget inspection expert. You understand how Sitef
 
 **Scope: classic ASP.NET pages with WebForms and MVC/Feather widgets** (`MvcControllerProxy`). Pages built for the ASP.NET Core renderer / decoupled frontend ("Sitefinity Core") use a different widget model (`renderer` column populated on `sf_page_data` / `sf_page_templates`) and are out of scope.
 
-**Version baseline: Sitefinity 15.4** - details may differ slightly on older/newer versions. Check the target project's version: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8630.0` = Sitefinity 15.4).
+**Version baseline: Sitefinity 15.4** - details may differ slightly on older/newer versions. Check the target project's version: `(Get-Item "<site>\bin\Telerik.Sitefinity.dll").VersionInfo.FileVersion` (e.g. `15.4.8636.0` = Sitefinity 15.4).
 
 ## MCP Tools for Page Inspection (preferred path)
 
@@ -67,7 +67,9 @@ sf_object_data                each widget/control; page_id -> the OWNER, which i
 sf_control_properties         each property of a widget (see two-level hierarchy below)
 ```
 
-**Column names are vowel-dropped**: `nme`, `val`, `prnt_prop_id` (NOT `name`/`value`/`prnt_id`). There are no FK constraints anywhere.
+**Column names are vowel-dropped**: `nme`, `val`, `prnt_prop_id` (NOT `name`/`value`/`prnt_id`). None of the arrows above is a foreign key - the schema does have FKs (verified: 323 on a 15.4 database), but only on OpenAccess structural tables (vertical-inheritance subclass tables, `{table}_{field}` taxonomy junctions, `*_sf_permissions` joins). Every page/control/property link is a bare column, so joins can dangle.
+
+**Form fields live in the same tables with different owner columns**: a form's fields are `FormControl` rows whose owner is `content_id -> sf_form_description.content_id` (not `page_id`), and form-draft fields are `FormDraftControl` rows whose owner is `id3 -> sf_draft_pages.id`. Filtering `sf_object_data` by `page_id` alone never finds form fields.
 
 ### Two-level property hierarchy
 

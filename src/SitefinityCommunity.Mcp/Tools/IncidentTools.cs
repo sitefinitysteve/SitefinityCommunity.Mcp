@@ -39,7 +39,7 @@ public sealed class IncidentTools
                  "moment, with IIS aggregates (per-minute request counts, status histogram including " +
                  "sub-status, all 5xx, slowest requests).\n" +
                  "3. SEARCH (query, no time) — Mode=\"search\": sweeps every source over lookbackHours for a " +
-                 "plain substring, e.g. query: \"steve@medportal.ca\" to find one user's trail, or an order id, " +
+                 "plain substring, e.g. query: \"jane.doe@example.com\" to find one user's trail, or an order id, " +
                  "or a URL path.\n\n" +
                  "Passing time AND query filters that window's entries to matching ones (IIS then returns the " +
                  "matching requests at ALL status codes, not just 5xx, while the aggregates still cover the " +
@@ -60,7 +60,7 @@ public sealed class IncidentTools
         int windowMinutes = 15,
         [Description("Case-insensitive plain substring (NOT a regex) to match against entries in every source: " +
                      "IIS username / URI / query string / client IP / referer, the whole Sitefinity entry, " +
-                     "event provider + message, and the HTTPERR record. Example: \"steve@medportal.ca\".")]
+                     "event provider + message, and the HTTPERR record. Example: \"jane.doe@example.com\".")]
         string? query = null,
         [Description("How far back discovery and search look, in hours. Default 72, max 336 (14 days). " +
                      "Ignored when a time is supplied.")]

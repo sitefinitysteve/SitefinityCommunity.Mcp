@@ -70,7 +70,7 @@ public sealed class WhereUsedItem
     /// <summary>The widget's raw object type.</summary>
     public string ObjectType { get; set; } = string.Empty;
 
-    /// <summary>"medportal", "sitefinity", or "unknown" — provenance of the matched widget.</summary>
+    /// <summary>"custom", "sitefinity", or "unknown" — provenance of the matched widget by its controller/type namespace.</summary>
     public string Origin { get; set; } = string.Empty;
 
     /// <summary>The placeholder the widget sits in on its host.</summary>

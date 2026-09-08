@@ -17,12 +17,17 @@ SitefinityCommunity.Mcp/
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
 ├── install-skills.ps1                 ← Offline installer: Claude/Cursor/Codex/Copilot (project or global) — fallback to `npx skills`
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
-├── skills/                            ← 16 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
+├── skills/                            ← 17 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
 │   ├── sitefinity-best-practices/
 │   │   └── SKILL.md                  ← Read-this-first foundation + skill router
+│   ├── sitefinity-database-structure/
+│   │   ├── SKILL.md                  ← Full DB reference (verified on 15.4.8636: mappings + live DB + platform code)
+│   │   └── reference/
+│   │       ├── relationship-map-15.4.md   ← Every logical link column-by-column, FK shapes, index inventory
+│   │       └── verification-queries.sql   ← Read-only queries that reproduce every claim on another DB
 │   ├── sitefinity-widget-expert/
 │   │   └── SKILL.md                  ← MVC widget development guidance
-│   └── ...                           ← 13 more (page, data, API, Vue3, build, debloat, icons)
+│   └── ...                           ← 13 more (page, data, API helpers, Vue3, React, build, debloat)
 ├── tests/
 │   ├── test-config.example.json       ← Template (committed)
 │   ├── test-config.json               ← Your dev config (gitignored)

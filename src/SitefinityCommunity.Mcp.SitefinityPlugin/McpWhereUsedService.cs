@@ -646,22 +646,27 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return ShortName(objectType ?? string.Empty);
         }
 
-        /// <summary>Provenance of a widget by its controller/type namespace.</summary>
+        /// <summary>
+        /// Provenance of a widget by its controller/type namespace: "sitefinity" for the platform's own
+        /// namespaces (Telerik.Sitefinity.*, Progress.Sitefinity.*), "custom" for any other resolved type
+        /// (the site's own widgets), "unknown" when neither a controller name nor an object type is present.
+        /// </summary>
         private static string DeriveOrigin(string controllerName, string objectType)
         {
             var s = !string.IsNullOrEmpty(controllerName) ? controllerName : (objectType ?? string.Empty);
 
-            if (s.IndexOf("Medportal", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (string.IsNullOrWhiteSpace(s))
             {
-                return "medportal";
+                return "unknown";
             }
 
-            if (s.IndexOf("Telerik.Sitefinity", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (s.IndexOf("Telerik.Sitefinity", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                s.IndexOf("Progress.Sitefinity", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return "sitefinity";
             }
 
-            return "unknown";
+            return "custom";
         }
 
         private static string Snippet(string value, string needle)

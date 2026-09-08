@@ -7,6 +7,8 @@ description: Complete setup guide for adding a Vue 3 + Vite 8 (Rolldown) + Tailw
 
 > **Stack:** Sitefinity 15+ (ASP.NET MVC) | Vue 3.5 | Vite 8 (Rolldown) | Tailwind CSS v4 | shadcn-vue | TypeScript
 >
+> **Scope: the classic MVC renderer (.NET Framework 4.8, `MvcControllerProxy` widgets) only.** This is NOT for the Sitefinity ASP.NET Core Renderer ("Sitefinity Core", `Progress.Sitefinity.AspNetCore`), which is a separate .NET web app with its own widget model, view components, and asset pipeline - none of the controller, Razor, `Html.Script`, index-mode, or design-mode mechanics below apply there. For the React equivalent of this guide on the same classic stack see `sitefinity-react-vite8-guide`.
+>
 > This guide walks you through adding a modern Vue 3 frontend to a Sitefinity CMS project with production code splitting, design-mode support, search indexing, and a dev impersonation controller. Every file is included — you can hand this to an LLM or a developer and get a working setup.
 
 ---
