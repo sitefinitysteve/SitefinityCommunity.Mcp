@@ -17,12 +17,12 @@ SitefinityCommunity.Mcp/
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
 ├── install-skills.ps1                 ← Offline installer: Claude/Cursor/Codex/Copilot (project or global) — fallback to `npx skills`
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
-├── skills/                            ← 16 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
+├── skills/                            ← 17 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
 │   ├── sitefinity-best-practices/
 │   │   └── SKILL.md                  ← Read-this-first foundation + skill router
 │   ├── sitefinity-widget-expert/
 │   │   └── SKILL.md                  ← MVC widget development guidance
-│   └── ...                           ← 13 more (page, data, API, Vue3, build, debloat, icons)
+│   └── ...                           ← 13 more (page, data, API helpers, Vue3, React, build, debloat)
 ├── tests/
 │   ├── test-config.example.json       ← Template (committed)
 │   ├── test-config.json               ← Your dev config (gitignored)

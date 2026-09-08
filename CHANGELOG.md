@@ -2,7 +2,12 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.7.0] — 2026-09-08
+
+### Added
+
+- **`sitefinity-api-helpers` skill** — a verified cheat sheet of the platform helpers production Sitefinity code actually reaches for, so custom code stops re-implementing them badly: `ToSitefinityUITime` and the other `DateTime`/string extensions, `GetValue` / `GetString` / `SetValue` on any data item, `GetRelatedItems` and content links, lifecycle helpers (`GetLive`, `IsPublished`), media URL resolution, page URLs, identity and permission checks (`ClaimsManager`, `RoleManager`, `IsGranted`), elevated privilege, design/preview/index mode detection, `TypeResolutionService`, and `Config.Get`. Every signature was extracted from the decompiled 15.4.8636 assemblies and cross-checked against a production site's usage, with call counts noted where they show which helper is the idiom.
+- **`sitefinity-react-vite8-guide` skill** — the React 19 counterpart to the existing Vue 3 guide: React 19 + Vite 8 (Rolldown) + Tailwind CSS v4 + shadcn/ui on classic Sitefinity MVC (`MvcControllerProxy` widgets, **not** the ASP.NET Core Renderer). Covers data-island widgets, per-widget code splitting, the React root lifecycle inside Sitefinity's page editor (mount, remount, teardown), keeping content search-indexable, the Sentry error-boundary bridge, the HMR dev server, and the bun / oxlint / oxfmt toolchain — plus how to migrate widgets over from the Vue 3 guide.
 
 ### Changed
 

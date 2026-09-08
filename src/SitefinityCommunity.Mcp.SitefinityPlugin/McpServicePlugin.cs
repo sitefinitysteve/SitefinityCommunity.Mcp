@@ -21,7 +21,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
     public static class McpPluginInfo
     {
         /// <summary>Semantic version of this plugin source drop.</summary>
-        public const string Version = "3.6.0";
+        public const string Version = "3.7.0";
     }
 
     /// <summary>
