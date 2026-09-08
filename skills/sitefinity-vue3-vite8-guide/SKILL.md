@@ -1,6 +1,6 @@
 ---
 name: sitefinity-vue3-vite8-guide
-description: Complete setup guide for adding a Vue 3 + Vite 8 (Rolldown) + Tailwind CSS v4 + shadcn-vue frontend to a classic Sitefinity MVC site - data-island widgets, code splitting, design-mode mounting, search indexing, Sentry error bridge, HMR dev server, and IIS considerations. Use when building or troubleshooting this stack on Sitefinity.
+description: Complete setup guide for adding a Vue 3 + Vite 8 (Rolldown) + Tailwind CSS v4 + shadcn-vue frontend to a classic Sitefinity MVC site - data-island widgets, code splitting, design-mode mounting, search indexing, an optional error-monitoring bridge (Sentry shown), HMR dev server, and IIS considerations. Use when building or troubleshooting this stack on Sitefinity.
 ---
 
 # Vue 3 + Vite 8 + Tailwind CSS v4 on Sitefinity: A Complete Guide

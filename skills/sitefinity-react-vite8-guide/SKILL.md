@@ -1,11 +1,11 @@
 ---
 name: sitefinity-react-vite8-guide
-description: Setup and conventions for adding a React 19 + Vite 8 (Rolldown) + Tailwind CSS v4 + shadcn/ui frontend to a classic Sitefinity MVC site (.NET Framework 4.8, MvcControllerProxy widgets - NOT the ASP.NET Core Renderer) - data-island widgets, per-widget code splitting, the React root lifecycle inside Sitefinity's page editor (mount, remount, teardown), search indexing, the Sentry error boundary bridge, HMR dev server, and the bun/oxlint/oxfmt toolchain. Use when building or troubleshooting React widgets on classic Sitefinity MVC, or when migrating widgets from the Vue 3 guide.
+description: Setup and conventions for adding a React 19 + Vite 8 (Rolldown) + Tailwind CSS v4 + shadcn/ui frontend to a classic Sitefinity MVC site (.NET Framework 4.8, MvcControllerProxy widgets - NOT the ASP.NET Core Renderer) - data-island widgets, per-widget code splitting, the React root lifecycle inside Sitefinity's page editor (mount, remount, teardown), search indexing, error boundaries with a pluggable error-reporting sink (Sentry shown as one optional wiring), HMR dev server, and lint/format tooling. Use when building or troubleshooting React widgets on classic Sitefinity MVC, or when migrating widgets from the Vue 3 guide.
 ---
 
 # React 19 + Vite 8 + Tailwind CSS v4 on classic Sitefinity MVC
 
-> **Stack:** Sitefinity 15+ (classic ASP.NET MVC, .NET Framework 4.8) | React 19 | Vite 8 (Rolldown) | Tailwind CSS v4 | shadcn/ui (Base UI primitives) | TypeScript | bun | oxlint + oxfmt
+> **Stack:** Sitefinity 15+ (classic ASP.NET MVC, .NET Framework 4.8) | React 19 | Vite 8 (Rolldown) | Tailwind CSS v4 | shadcn/ui (Base UI primitives) | TypeScript | any package manager and linter (the reference project uses bun + oxlint/oxfmt; npm + ESLint/Prettier work identically)
 >
 > **Scope: the classic MVC renderer only** (`MvcControllerProxy` widgets, Razor views, `Html.Script`). This is NOT for the Sitefinity ASP.NET Core Renderer ("Sitefinity Core", `Progress.Sitefinity.AspNetCore`), which is a separate .NET web app with its own widget model and asset pipeline. If the solution has a second web project referencing `Progress.Sitefinity.Renderer`, or pages carry a non-NULL `renderer` column, stop - none of this applies.
 >
@@ -17,12 +17,12 @@ description: Setup and conventions for adding a React 19 + Vite 8 (Rolldown) + T
 
 1. [What changes vs Vue](#1-what-changes-vs-vue)
 2. [Folder structure](#2-folder-structure)
-3. [Toolchain: package.json, tsconfig, oxlint, oxfmt](#3-toolchain)
+3. [Toolchain: package.json, tsconfig, lint/format](#3-toolchain)
 4. [vite.react.config.ts](#4-vitereactconfigts)
 5. [Loading React on pages (React.cshtml)](#5-loading-react-on-pages)
 6. [The runtime: widget map, scanning, design-mode watcher](#6-the-runtime)
 7. [The widget registry: React roots inside Sitefinity's editor](#7-the-widget-registry)
-8. [mountWidget: the Sentry error boundary bridge](#8-mountwidget)
+8. [mountWidget: the error boundary and the error-reporting sink (Sentry optional)](#8-mountwidget)
 9. [A complete widget: controller, view, index.tsx, App](#9-a-complete-widget)
 10. [Template selection without ViewSelector](#10-template-selection)
 11. [Styling rules that matter inside a CMS](#11-styling-rules)
@@ -40,11 +40,11 @@ The data-island architecture is the same: the MVC controller serializes widget c
 |---|---|---|
 | Root lifecycle | `createApp().mount(el)`; a detached app is garbage | `createRoot()` **owns its container**; a root whose host Sitefinity removed or rewrote must be `unmount()`ed or it leaks and can double-render. The registry tracks every root |
 | Mount target | The host element | A **dedicated child container** (`createMountContainer(el)`), never the host - Sitefinity rewrites host `innerHTML` on property save, and unmounting a root whose children were destroyed externally throws an uncatchable async `NotFoundError` |
-| Error capture | `app.config.errorHandler` | `Sentry.ErrorBoundary` around every root (render/lifecycle errors) + `@sentry/react` `GlobalHandlers` (event handlers, async) |
+| Error capture | `app.config.errorHandler` | An error boundary around every root (render/lifecycle errors) + `window.onerror` / `unhandledrejection` (event handlers, async). Both forward to one `reportError` sink; plug your monitoring in there (optional) |
 | Dev server | Vite client + entry | Vite client + entry **plus the React Fast Refresh preamble** injected before any module loads |
 | Templates | `<component :is>` | A `templates` map of components keyed by the `templateName` string from the config |
 | Cross-root state | Provide/inject or Pinia | Context cannot cross root boundaries; shared state between independently mounted apps uses module-level external stores (`useSyncExternalStore`) |
-| Lint/format | ESLint/Prettier | oxlint + oxfmt (no ESLint, no Prettier) |
+| Lint/format | your choice | your choice - the snippets show oxlint + oxfmt; ESLint/Prettier need no other change |
 
 ---
 
@@ -52,13 +52,12 @@ The data-island architecture is the same: the MVC controller serializes widget c
 
 ```
 YourSite/ResourcePackages/MyTheme/
-├── package.json                    # bun scripts (build, dev, lint, typecheck, test)
-├── bun.lock
+├── package.json                    # scripts (build, dev, lint, typecheck, test)
+├── bun.lock (or package-lock.json)
 ├── tsconfig.json
 ├── tsconfig.react.json             # extends tsconfig.json, scopes to assets/src/react
 ├── vite.react.config.ts            # the React build (name is historical if you also had a Vue config)
-├── .oxlintrc.json
-├── .oxfmtrc.json
+├── .oxlintrc.json / .oxfmtrc.json  # or your ESLint/Prettier config
 ├── components.json                 # shadcn/ui config
 ├── vite-dev.crt / vite-dev.key     # self-signed cert for the HTTPS dev server (gitignored)
 ├── tests/                          # node:test files (*.test.ts)
@@ -70,7 +69,8 @@ YourSite/ResourcePackages/MyTheme/
 │           ├── lib/
 │           │   ├── runtime.tsx              # Vite entry: widget map + scanner + design-mode watcher
 │           │   ├── widget-registry.ts       # registerWidget / claimHost / createMountContainer / trackRoot / sweepDisconnectedRoots
-│           │   ├── sentry-react.tsx         # mountWidget + Sentry init (errors only)
+│           │   ├── mount.tsx                # mountWidget: createRoot + error boundary
+│           │   ├── error-reporting.ts       # reportError() + setErrorReporter() - the one place monitoring plugs in
 │           │   ├── env.ts                   # IS_DEV (hostname-based)
 │           │   └── components/ui/           # shadcn/ui components (own chunk)
 │           └── widgets/
@@ -117,9 +117,9 @@ Naming rules that pay off immediately:
 
 `dev` runs the HMR server **and** a watch build at the same time: the HMR server serves pages you browse on the dev site, while the watch build keeps `assets/dist/react` current so the page editor and preview (which never use the dev server, see section 5) render the latest code.
 
-Dependencies that carry weight: `react`, `react-dom`, `@base-ui/react` (shadcn's headless primitives), `tailwindcss` + `@tailwindcss/vite`, `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css`, `lucide-react`, `axios`, `zod`, `zustand`, `@sentry/react`, `@tanstack/react-table`, `react-hook-form` + `@hookform/resolvers`. Dev: `vite`, `@vitejs/plugin-react`, `typescript`, `@types/react`, `@types/react-dom`, `oxlint`, `oxfmt`, `shadcn`, `concurrently`.
+Dependencies that carry weight: `react`, `react-dom`, `@base-ui/react` (shadcn's headless primitives), `tailwindcss` + `@tailwindcss/vite`, `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css`, `lucide-react`, `axios`, `zod`, `zustand`, `@tanstack/react-table`, `react-hook-form` + `@hookform/resolvers`. Dev: `vite`, `@vitejs/plugin-react`, `typescript`, `@types/react`, `@types/react-dom`, `shadcn`, `concurrently`, plus your linter/formatter (`oxlint` + `oxfmt` in the snippets). Optional: `@sentry/react` only if you wire section 8's sink to Sentry.
 
-**Package manager is bun** (`bun.lock` is authoritative; no `package-lock.json`). Everything below works with npm too, but do not keep two lockfiles.
+**Package manager and linter are your call.** The reference project uses bun (`bun.lock`) with oxlint + oxfmt because they are fast and config-light; nothing in this guide depends on them. With npm, swap the `oxlint`/`oxfmt` scripts for your ESLint/Prettier equivalents and skip the two `.ox*rc` sections below. Whatever you pick, keep one lockfile.
 
 ### tsconfig.react.json
 
@@ -244,7 +244,7 @@ export default defineConfig(({ mode }) => ({
         codeSplitting: {
           groups: [
             // React core + Base UI primitives. The trailing [\\/] anchors each name to a full path
-            // segment so scoped lookalikes (@sentry/react, lucide-react) cannot leak in.
+            // segment so scoped lookalikes (@tanstack/react-table, lucide-react) cannot leak in.
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|@base-ui)[\\/]/, priority: 20 },
             { name: 'shadcn-ui', test: /[\\/]components[\\/]ui[\\/]/, priority: 15 },
             // Shared-by-2+ code, but NEVER a widget's own folder - otherwise anything that imports
@@ -336,7 +336,7 @@ else
 ```tsx
 import '../../shared/styles/globals.css'
 import { mountAllWidgets, sweepDisconnectedRoots } from './widget-registry'
-import { captureException } from './sentry-react'
+import { reportError } from './error-reporting'
 
 // One CSS selector -> one dynamic import. Vite splits each import into its own chunk, loaded only
 // when the selector is present in the DOM.
@@ -357,7 +357,7 @@ function scanAndMount() {
         console.error(`[React] Failed to load chunk for ${selector}:`, err)
         // A caught rejection never reaches window.onunhandledrejection - report it explicitly. A
         // chunk that 404s after a bad deploy is a whole widget that silently never renders.
-        captureException(err, { context: 'react-runtime:chunk-load', selector })
+        reportError(err, { context: 'react-runtime:chunk-load', selector })
       })
     }
   }
@@ -397,7 +397,7 @@ if (document.readyState === 'loading') {
 }
 ```
 
-Two differences from the Vue runtime: `sweepDisconnectedRoots()` runs first on every design-mode mutation, and chunk-load failures are reported to Sentry explicitly. The `satisfies` on `widgetMap` keeps the selectors as literal keys while still type-checking the loaders.
+Two differences from the Vue runtime: `sweepDisconnectedRoots()` runs first on every design-mode mutation, and chunk-load failures are passed to `reportError` explicitly. The `satisfies` on `widgetMap` keeps the selectors as literal keys while still type-checking the loaders.
 
 ---
 
@@ -494,43 +494,86 @@ Static shell regions (a layout's sidebar/header that Sitefinity never XHR-replac
 
 ## 8. mountWidget
 
-`assets/src/react/lib/sentry-react.tsx` exposes one function every widget uses:
+Two small files. `mount.tsx` is what every widget imports; `error-reporting.ts` is the single seam where a monitoring product plugs in - and works with none.
+
+`assets/src/react/lib/error-reporting.ts`:
+
+```typescript
+export type ErrorContext = Record<string, string | number | boolean | null | undefined>
+export type ErrorReporter = (err: unknown, context?: ErrorContext) => void
+
+let reporter: ErrorReporter | null = null
+
+/** Call once at startup (from the runtime, or from an optional monitoring module) to forward errors somewhere. */
+export function setErrorReporter(fn: ErrorReporter | null) { reporter = fn }
+
+/** Every error the React layer catches goes through here. With no reporter set it just logs. */
+export function reportError(err: unknown, context?: ErrorContext) {
+  console.error('[React]', context ?? '', err)
+  reporter?.(err, context)
+}
+```
+
+`assets/src/react/lib/mount.tsx`:
 
 ```tsx
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { ReactNode } from 'react'
-import * as Sentry from '@sentry/react'
+import { reportError } from './error-reporting'
 
-// Sentry.init runs once at module evaluation against a server-rendered window config
-// (emitted by a Razor partial from your Sitefinity settings). Errors only: no Replay, no
-// BrowserTracing, no Performance - those integrations are never imported, so they tree-shake out.
-// If the config global is missing, every call here is a silent no-op.
+type BoundaryProps = { widget: string; children: ReactNode }
+type BoundaryState = { failed: boolean }
 
-export function mountWidget(el: HTMLElement, node: ReactNode): Root {
-  const root = createRoot(el)
-  root.render(
-    <Sentry.ErrorBoundary
-      fallback={null}
-      beforeCapture={(scope) => { scope.setTag('source.framework', 'react') }}
-    >
-      {node}
-    </Sentry.ErrorBoundary>,
-  )
-  return root
+// React has no built-in error boundary component; this is the whole thing.
+class WidgetErrorBoundary extends Component<BoundaryProps, BoundaryState> {
+  state: BoundaryState = { failed: false }
+  static getDerivedStateFromError(): BoundaryState { return { failed: true } }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    reportError(err, { widget: this.props.widget, componentStack: info.componentStack ?? undefined })
+  }
+  render() { return this.state.failed ? null : this.props.children }   // a broken widget renders nothing, never a broken page
 }
 
-export function captureException(err: unknown, context?: Record<string, string | number | boolean | null | undefined>) {
-  Sentry.withScope((scope) => {
-    scope.setTag('source.framework', 'react')
-    if (context) { scope.setContext('widget', context) }
-    Sentry.captureException(err)
+export function mountWidget(el: HTMLElement, node: ReactNode, widget = el.dataset.widget ?? 'unknown'): Root {
+  const root = createRoot(el)
+  root.render(<WidgetErrorBoundary widget={widget}>{node}</WidgetErrorBoundary>)
+  return root
+}
+```
+
+Coverage rules: the boundary catches errors thrown during render, lifecycle and commit and attaches the component stack. Errors in DOM event handlers (`onClick`) and async callbacks are **not** caught by any React error boundary - they surface through `window.onerror` / `unhandledrejection`, which every monitoring SDK already hooks, or which you hook yourself once in the runtime (`window.addEventListener('error', e => reportError(e.error))`, same for `unhandledrejection`). Imperative code outside React (the chunk loader in section 6) calls `reportError` directly. Never add a second top-level boundary in widget code; change `mountWidget` so every widget gets the same handling.
+
+### 8a. Optional: forwarding to a monitoring product (Sentry as the example)
+
+Nothing above requires a vendor. If you run Sentry (or Application Insights, Datadog, Raygun - the shape is the same), create one module that installs the reporter and import it **once** from the runtime entry, before the widget map:
+
+```tsx
+// assets/src/react/lib/monitoring-sentry.ts  (only exists if you use Sentry)
+import * as Sentry from '@sentry/react'
+import { setErrorReporter } from './error-reporting'
+
+// DSN/environment come from a server-rendered window config emitted by a Razor partial from your
+// Sitefinity settings. Errors only: no Replay, no BrowserTracing - those integrations are never
+// imported, so they tree-shake out. Missing config -> nothing is installed and reportError just logs.
+const cfg = (window as { SENTRY_CONFIG?: { dsn?: string; environment?: string } }).SENTRY_CONFIG
+if (cfg?.dsn) {
+  Sentry.init({ dsn: cfg.dsn, environment: cfg.environment, integrations: [] })
+  setErrorReporter((err, context) => {
+    Sentry.withScope((scope) => {
+      scope.setTag('source.framework', 'react')
+      if (context) { scope.setContext('widget', context) }
+      Sentry.captureException(err)
+    })
   })
 }
 ```
 
-Coverage rules: the `ErrorBoundary` catches errors thrown during render, lifecycle and commit and attaches the React component stack. Errors in DOM event handlers (`onClick`) and async callbacks are **not** caught by any React error boundary - `@sentry/react`'s default `GlobalHandlers` integration (`window.onerror` / `unhandledrejection`) picks those up. Imperative code outside React (the chunk loader) calls `captureException`. Never add your own top-level `ErrorBoundary` in widget code; change `mountWidget` so every widget gets the same handling.
+```tsx
+// runtime.tsx - first import, so the reporter exists before any chunk can fail
+import './monitoring-sentry'
+```
 
----
+Sentry's `@sentry/react` package also ships its own `ErrorBoundary`; you do not need it - the hand-rolled boundary above already forwards through the sink, and keeping the boundary vendor-free means dropping the SDK is a one-file delete. Whatever product you use, tag events per call (as above) rather than through a global initial scope, so a Vue bundle running alongside (section 13) can tag its own.
 
 ## 9. A complete widget
 
@@ -626,7 +669,7 @@ A `<template>` keeps the JSON inert (not rendered, not parsed as HTML). Nothing 
 ### index.tsx (the mount contract)
 
 ```tsx
-import { mountWidget } from '@r/sentry-react'
+import { mountWidget } from '@r/mount'
 import { registerWidget, claimHost, createMountContainer, trackRoot } from '@r/widget-registry'
 import { FaqApp } from './FaqApp'
 import type { FaqConfig } from './types'
@@ -729,7 +772,7 @@ A migration runs both bundles for a while. Rules that keep that sane:
 - A widget selector lives in **exactly one** `widgetMap`. Move it from the Vue map to the React map in the same commit as the widget port - never claimed by both.
 - Shared shell regions (sidebar/header) can be owned by only one bundle; move the eager import with the region.
 - Both bundles import the same `globals.css`; keep one theme file.
-- Sentry: both SDKs share one global carrier if pinned to the same core version. The first `init` wins; tag React events per event (`beforeCapture`, `withScope`) rather than relying on `initialScope`.
+- If both bundles report to the same monitoring SDK (Sentry example): the two framework packages share one global client when pinned to the same core version, the first `init` wins, and each side should tag its events per call rather than through a global initial scope.
 - Aliases: `@` for the Vue build, `@r` for React, so a stray import cannot resolve into the wrong tree.
 
 ---

@@ -242,7 +242,7 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 | `sitefinity-odata-services` | Query native and dynamic module content via the built-in `/api/default` OData service - zero code |
 | `sitefinity-adminapp-extensions` | Angular AdminApp custom field editors for the backend UI |
 | `sitefinity-vue3-vite8-guide` | Add a Vue 3 + Vite 8 + Tailwind frontend to Sitefinity |
-| `sitefinity-react-vite8-guide` | Add a React 19 + Vite 8 + Tailwind frontend to classic Sitefinity MVC (React root lifecycle in the page editor, Sentry bridge, bun/oxlint toolchain) |
+| `sitefinity-react-vite8-guide` | Add a React 19 + Vite 8 + Tailwind frontend to classic Sitefinity MVC (React root lifecycle in the page editor, error boundaries with a pluggable reporting sink, HMR dev server) |
 | `sitefinity-api-helpers` | Verified cheat sheet of Sitefinity's built-in helpers (ToSitefinityUITime, GetValue/SetValue, GetRelatedItems, lifecycle, media URLs, ClaimsManager, IsGranted, design/index mode) with 15.4 signatures |
 | `sitefinity-poco-generator` | Generate strongly-typed C# POCOs from Module Builder types |
 | `sitefinity-page-inspector` | Inspect page widgets and their configured property values |
