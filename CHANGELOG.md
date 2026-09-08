@@ -2,17 +2,24 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.8.0] — 2026-09-08
 
 ### Added
 
-- **New skill `sitefinity-dynamic-content-sql` (18 skills).** Getting Module Builder content out of the database as flat rows for reports, BI, audits and migration inventories. Documents how a dynamic type is physically stored (the `sf_dynamic_content` + per-type split, one row per lifecycle state, junction tables whose names the ORM mangles, `sf_content_link`, addresses, single vs multi-select choices, Link JSON, localization), how to resolve a type to its tables from the platform's own metadata when `sf_meta_data_mapping` is incomplete, and the publication-state rules (Published / Scheduled / Expired / Unpublished / Draft / Deleted) reconciled against the approval trail. Ships `reference/flatten-dynamic-content.sql`, a generator with `select` / `sql` / `view` / `poco` modes that emits one SELECT per type with taxonomy, multi-choice, related-item and address fields as JSON columns, and `reference/FlatRowSupport.cs` for the generated C# row class (Dapper / EF Core). Verified on Sitefinity 15.4 against a production-sized database across eight type shapes, including two types whose tables carry hand-chosen names.
+- **New skill `sitefinity-dynamic-content-sql` (18 skills).** Gets Module Builder content out of the database as flat rows for reports, Power BI, audits and migration inventories, where the classic pain is that one item is spread over `sf_dynamic_content`, a per-type table, mangled junction tables and `sf_content_link`. The skill covers:
+  - **The storage model** — lifecycle columns vs field values, one row per state (Master / Temp / Live / Deleted) each with its own per-type and junction rows, what unpublish, expiry and delete actually do to those rows, hierarchy (`parent_id` always points at the parent's master), taxonomy vs multi-select Choices junctions (`val` is a taxon id or a choice value), single-select Choices, related data and media through `sf_content_link` with its per-lifecycle availability flags, Address fields (`sf_addresses`), Link fields (JSON), default URLs, owners.
+  - **Resolving a type to its tables** from the platform's own metadata — `sf_meta_data_mapping` first, naming convention second, and a column-signature match for types whose table carries a hand-chosen name; junction tables through `sys.foreign_keys` (they are not in the mapping) with a name-mangling-aware match back to the field.
+  - **Publication state** — Published / Scheduled / Expired / Unpublished / Draft / Deleted derived from the rows and the scheduler, reconciled against the approval trail and raw counts.
+  - **`reference/flatten-dynamic-content.sql`** — a generator with four modes: `select` runs the flattened query, `sql` returns it, `view` creates one view per type for BI, and `poco` emits the matching C# row class. Every taxonomy, multi-choice, related-item and address field becomes a JSON column with PascalCase keys. Runs as a plain batch with no DDL rights, or wrapped as a stored procedure; inputs that reach generated code are validated.
+  - **`reference/FlatRowSupport.cs`** — base row class, `TaxonRef` / `RelatedRef` / `AddressRef`, and null-safe parsers using `ServiceStack.Text` (already in every Sitefinity bin folder, no `JsConfig` changes), with Dapper and EF Core mapping notes. Compiles on .NET Framework 4.8 and .NET 8.
+  - Verified on Sitefinity 15.4 against a production-sized database across eight type shapes, including two types whose tables carry hand-chosen names; the generated class was compiled and exercised against the bundled ServiceStack.Text.
 
 ### Changed
 
-- **`sitefinity-database-structure`** corrects the junction-table guidance: Module Builder junction tables are not listed in `sf_meta_data_mapping` (find them through `sys.foreign_keys`), the mapping can miss whole types, and multi-select Choices fields also produce junction tables (`val` is the choice value, not a taxon id).
-
+- **`sitefinity-database-structure`** corrects the junction-table guidance: Module Builder junction tables are not listed in `sf_meta_data_mapping` (find them through `sys.foreign_keys`), the mapping can miss whole types, multi-select Choices fields also produce junction tables (`val` is the choice value, not a taxon id), and `sf_url_data.item_type` can be NULL on dynamic rows.
+- **`sitefinity-best-practices`** routes flat-SQL / reporting questions to the new skill and states the table-discovery rule.
 - **`sitefinity-react-vite8-guide` is vendor-neutral.** `mountWidget` now lives in `mount.tsx` with a hand-rolled error boundary that forwards to a pluggable `reportError` / `setErrorReporter` sink; `@sentry/react` is no longer a required dependency or a file name, and Sentry appears only in an optional "8a" wiring example (any monitoring SDK fits the same seam). bun and oxlint/oxfmt are described as the reference project's choices rather than requirements, with npm / ESLint / Prettier called out as equivalent. The Vue guide's description, the README row and the skill router were reworded to match.
+- **README** install guidance recommends the global (`-g`) install and notes that `npx skills update` never adds new skills, so a release that ships a new skill needs `add` again.
 
 ## [3.7.0] — 2026-09-08
 
