@@ -17,7 +17,7 @@ SitefinityCommunity.Mcp/
 ├── install-plugin.ps1                 ← Copies plugin files to a Sitefinity project
 ├── install-skills.ps1                 ← Offline installer: Claude/Cursor/Codex/Copilot (project or global) — fallback to `npx skills`
 ├── SitefinityCommunity.Mcp.slnx       ← Solution file
-├── skills/                            ← 17 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
+├── skills/                            ← 18 Agent Skills (`npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp`, or install-skills.ps1)
 │   ├── sitefinity-best-practices/
 │   │   └── SKILL.md                  ← Read-this-first foundation + skill router
 │   ├── sitefinity-database-structure/
@@ -27,6 +27,11 @@ SitefinityCommunity.Mcp/
 │   │       └── verification-queries.sql   ← Read-only queries that reproduce every claim on another DB
 │   ├── sitefinity-widget-expert/
 │   │   └── SKILL.md                  ← MVC widget development guidance
+│   ├── sitefinity-dynamic-content-sql/
+│   │   ├── SKILL.md                  ← Module Builder storage model + flatten-to-SQL rules (verified on 15.4)
+│   │   └── reference/
+│   │       ├── flatten-dynamic-content.sql ← Generator: select / sql / view / poco modes
+│   │       └── FlatRowSupport.cs          ← Base row class + JSON helper types for the poco output
 │   └── ...                           ← 13 more (page, data, API helpers, Vue3, React, build, debloat)
 ├── tests/
 │   ├── test-config.example.json       ← Template (committed)

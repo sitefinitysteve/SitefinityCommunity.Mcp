@@ -189,21 +189,21 @@ Ask Claude: *"Check if Sitefinity is running"* — it will call `sitefinity_chec
 
 ### Step 8 (optional) — Install the Sitefinity skills
 
-The repo ships **17 curated skills** that teach AI agents how to think about Sitefinity widgets, pages, data access, and tooling. They follow the open [Agent Skills](https://agentskills.io) standard (`skills/<name>/SKILL.md`), so they install into Claude Code, Codex, Cursor, and GitHub Copilot.
+The repo ships **18 curated skills** that teach AI agents how to think about Sitefinity widgets, pages, data access, and tooling. They follow the open [Agent Skills](https://agentskills.io) standard (`skills/<name>/SKILL.md`), so they install into Claude Code, Codex, Cursor, and GitHub Copilot.
 
 #### Recommended — `npx skills` (no clone, cross-platform)
 
 The [`skills`](https://github.com/vercel-labs/skills) CLI auto-discovers every `skills/*/SKILL.md` in the repo — no clone, no manifest, works on Windows / macOS / Linux. It also drives updates.
 
 ```powershell
-# Install all 17 skills into the current project (auto-detects your agent)
+# Install all 18 skills for your user, available in every project (recommended)
+npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill "*" -g -y
+
+# Install into the current project only (writes into the repo — see the note below)
 npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill "*" -y
 
 # Pick specific agents (repeat -a per agent; a comma list is rejected)
 npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill "*" -a claude-code -a codex -a cursor -a github-copilot -y
-
-# Install globally (user-level) instead of per-project
-npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill "*" -g -y
 
 # Install a single skill
 npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill sitefinity-best-practices -y
@@ -211,6 +211,10 @@ npx skills add github:sitefinitysteve/SitefinityCommunity.Mcp --skill sitefinity
 # Update everything you've installed to the latest committed versions
 npx skills update -y
 ```
+
+**`-g` is almost always what you want.** Without it the CLI installs into the *current directory*, dropping `.agents/skills/` and `.claude/skills/` into whatever repo you happen to be standing in — 40-odd untracked files your agent then wants to commit. Agents merge the global and project scopes, so a global install is available in every project anyway. Reserve the project-scoped form for skills that genuinely belong to one repo.
+
+**`npx skills update` only updates skills you already have — it never adds new ones.** When a release ships a new skill, re-run `add` to pick it up. It also *reports* skills deleted upstream but won't remove them in non-interactive mode (`-y`, or from a wrapper script), so delete those folders by hand when you see the warning.
 
 Valid agent names are `claude-code`, `codex`, `cursor`, and `github-copilot`. Claude Code lands the skills in `.claude/skills/`; the other agents share a canonical `.agents/skills/` copy that the CLI wires up for you. Add `--copy` to copy files instead of symlinking (Windows without Developer Mode).
 
@@ -249,6 +253,7 @@ Start with **`sitefinity-best-practices`** — it's the read-this-first entry po
 | `sitefinity-page-controls-map` | Quick map of how pages store widgets and properties |
 | `sitefinity-page-surgery` | Write migration code to change pages, widgets, templates |
 | `sitefinity-database-structure` | Grounded reference for the Sitefinity CMS database structure |
+| `sitefinity-dynamic-content-sql` | Flatten any Module Builder type into one SQL result set (taxonomy, choices, related items, addresses as JSON) as a query, stored procedure or view, plus the matching C# row class |
 | `sitefinity-binding-doctor` | Diagnose and fix .NET assembly binding YSOD errors |
 | `sitefinity-cli-build` | Build, test, and package a Sitefinity solution from the CLI |
 | `sitefinity-debloat-repo` | Stop committing build artifacts; make them reproducible; purge git bloat |

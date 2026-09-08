@@ -59,7 +59,7 @@ Practical rule: **treat every join in this document as "convention, verify with 
 |---|---|
 | Vowel-dropped column names | `nme` (name), `val` (value), `vrsion`, `ownr`, `commnt`, `lbel`, `dta`, `ky`, `qery`, `prent_template_id`, `lcation`, `frmwrk` |
 | Trailing-underscore columns | `title_`, `url_name_`, `description_`, `caption_`, `keywords_`, `content_`, `summary_` - these back localizable `Lstring` properties |
-| Vowel-stripped table names | `sf_mdia_content_sf_permissions`, `sf_drft_pages_sf_language_data`, and every long Module Builder junction name - long names get letters squeezed out by the ORM name generator, so **never derive a table name by string manipulation; look it up** (see `sf_meta_data_mapping` below) |
+| Vowel-stripped table names | `sf_mdia_content_sf_permissions`, `sf_drft_pages_sf_language_data`, and every long Module Builder junction name - past ~30 characters the ORM name generator squeezes vowels out and truncates (`announcements_announcement_category` -> `annncmnts_nnouncement_category`), so **never derive a table name by string manipulation; look it up** - type tables in `sf_meta_data_mapping` (below), junction tables through `sys.foreign_keys` (they are not in the mapping) |
 | Sitefinity's own typos | `sf_vesion_items` [sic], `include_script_manger` [sic], `sf_lbraries_thumbnail_profiles` |
 | `voa_class` / `voa_version` | OpenAccess type discriminator and optimistic-concurrency counter. `voa_class` matters when one table stores multiple CLR types (`sf_draft_pages`, `sf_object_data`, `sf_dynamic_content`, `sf_media_content`, `sf_libraries`, `sf_taxa`, `sf_taxonomies`, `sf_url_data`, `sf_user_profile`, `sf_form_entry`, `sf_presentation_data`, `sf_meta_attribute`). It is an int derived from the CLR type name; **treat it as opaque and discover it per database** with the `GROUP BY voa_class` plus a type-revealing column (`object_type`, `nme`, `mime_type`, `item_type`, `app_name`) - never hardcode a value |
 | `voa_keygen` table | OpenAccess HIGH/LOW key generator infrastructure, not app data |
@@ -85,7 +85,7 @@ SELECT t.name, p.rows FROM sys.tables t
 JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1) ORDER BY p.rows DESC;
 ```
 
-`sf_meta_data_mapping` (`module_name`, `type_name`, `field_name` = `#NA` for the type's own table, `table_name`) is what Sitefinity itself consults; it also lists the vowel-stripped form-entry tables under module `sf_fm`.
+`sf_meta_data_mapping` (`module_name`, `type_name`, `field_name` = `#NA` for the type's own table, `table_name`) is what Sitefinity itself consults; it also lists the vowel-stripped form-entry tables under module `sf_fm`. **It is not complete**: on the reference DB it held no rows at all for Module Builder junction tables and was missing 2 of 17 dynamic types entirely (their tables were named `resrce` and `msg`). When a type is missing, match the type's `sf_meta_fields.column_name` set against tables that have a `base_id` column and no `seq` column; find junction tables through `sys.foreign_keys` referencing the type table. `sitefinity-dynamic-content-sql` ships that resolution as a script.
 
 ## Page composition model
 
@@ -284,9 +284,9 @@ Both generations share the lifecycle semantics above; what differs is where the 
 | Query for live items | `WHERE status = 2` on the type's own table | Must join `sf_dynamic_content` for `status`, `visible`, `url_name_`, `publication_date`, `ownr` |
 | Parent/child hierarchy | `parent_id` on the type table (`sf_list_items.parent_id -> sf_lists`, `sf_media_content.parent_id -> sf_libraries`, `sf_blog_posts.parent_id -> sf_blogs`, `sf_events.parent_id`) | `parent_id` on the per-type table -> the parent type's `base_id`; ALSO mirrored as `sf_dynamic_content.system_parent_id` + `system_parent_type` (verified equal on every row) |
 | Custom fields added later | **Real columns added to the stock table** (`sf_meta_fields` rows on a meta type with `is_dynamic = 0`) | Columns in the per-type table (`is_dynamic = 1`) |
-| Taxonomy / multi-value fields | Junction tables `{table}_{field}`: `sf_content_items_category`, `sf_list_items_tags`, `sf_media_content_tags2` ... (`content_id`, `seq`, `val -> sf_taxa.id`; FK to the owner only) | Junction tables `{type}_{field}` vowel-stripped (look the name up in `sf_meta_data_mapping`; columns `base_id`, `seq`, `val -> sf_taxa.id`) |
+| Taxonomy / multi-value fields | Junction tables `{table}_{field}`: `sf_content_items_category`, `sf_list_items_tags`, `sf_media_content_tags2` ... (`content_id`, `seq`, `val -> sf_taxa.id`; FK to the owner only) | Junction tables `{table}_{field}`, vowel-stripped/truncated past ~30 chars (find them via `sys.foreign_keys` on the type table - they are NOT in `sf_meta_data_mapping`; columns `base_id`, `seq`, `val`). `val` is `uniqueidentifier -> sf_taxa.id` for taxonomy fields and `varchar` (the choice value) for multi-select Choices fields |
 | Translations / language data | `{table}_sf_language_data` (`content_id`, `seq`, `id -> sf_language_data.id`) and `{table}_pblshd_translations` (`content_id`, `seq`, `val` = culture code) | `sf_dynmc_cntnt_sf_lnguage_data` / `sf_dynmc_cntnt_pblshd_trnsltns` on `base_id` |
-| URL rows (`sf_url_data.app_name`) | `/News`, `/Events`, `/Blogs`, `/Lists`, `/Generic_Content`, `/Libraries`, `/SystemLibraries`, `/UserProfiles` | All under `/DynamicModule`, with `item_type` = the full type name |
+| URL rows (`sf_url_data.app_name`) | `/News`, `/Events`, `/Blogs`, `/Lists`, `/Generic_Content`, `/Libraries`, `/SystemLibraries`, `/UserProfiles` | All under `/DynamicModule`, with `item_type` = the full type name (NULL on ~3% of rows on the reference DB - orphaned debris; do not filter on it) |
 | Permissions | `{table}_sf_permissions` join (`content_id`, `id -> sf_permissions.id`) | `sf_dynmc_cntent_sf_permissions` (`base_id`, `id`) |
 
 Additional built-in specifics (all verified):

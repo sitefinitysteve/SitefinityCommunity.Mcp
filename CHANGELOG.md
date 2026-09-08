@@ -4,7 +4,13 @@ All notable changes to **SitefinityCommunity.Mcp** are documented here. This pro
 
 ## [Unreleased]
 
+### Added
+
+- **New skill `sitefinity-dynamic-content-sql` (18 skills).** Getting Module Builder content out of the database as flat rows for reports, BI, audits and migration inventories. Documents how a dynamic type is physically stored (the `sf_dynamic_content` + per-type split, one row per lifecycle state, junction tables whose names the ORM mangles, `sf_content_link`, addresses, single vs multi-select choices, Link JSON, localization), how to resolve a type to its tables from the platform's own metadata when `sf_meta_data_mapping` is incomplete, and the publication-state rules (Published / Scheduled / Expired / Unpublished / Draft / Deleted) reconciled against the approval trail. Ships `reference/flatten-dynamic-content.sql`, a generator with `select` / `sql` / `view` / `poco` modes that emits one SELECT per type with taxonomy, multi-choice, related-item and address fields as JSON columns, and `reference/FlatRowSupport.cs` for the generated C# row class (Dapper / EF Core). Verified on Sitefinity 15.4 against a production-sized database across eight type shapes, including two types whose tables carry hand-chosen names.
+
 ### Changed
+
+- **`sitefinity-database-structure`** corrects the junction-table guidance: Module Builder junction tables are not listed in `sf_meta_data_mapping` (find them through `sys.foreign_keys`), the mapping can miss whole types, and multi-select Choices fields also produce junction tables (`val` is the choice value, not a taxon id).
 
 - **`sitefinity-react-vite8-guide` is vendor-neutral.** `mountWidget` now lives in `mount.tsx` with a hand-rolled error boundary that forwards to a pluggable `reportError` / `setErrorReporter` sink; `@sentry/react` is no longer a required dependency or a file name, and Sentry appears only in an optional "8a" wiring example (any monitoring SDK fits the same seam). bun and oxlint/oxfmt are described as the reference project's choices rather than requirements, with npm / ESLint / Prettier called out as equivalent. The Vue guide's description, the README row and the skill router were reworded to match.
 
