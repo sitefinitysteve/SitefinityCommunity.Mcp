@@ -2,6 +2,27 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.8.1] — 2026-09-23
+
+Skills-only release. No MCP server or plugin behavior changes. Only the version number moved, so a plugin already on 3.8.0 does not need reinstalling.
+
+### Fixed
+
+- **`sitefinity-database-structure`: the page-draft `Synced` flag was documented on the wrong table and read the wrong way.**
+  - The flag is bit 1 of the **master draft's** `sf_draft_pages.flags` (`PageDraft.Masks.Synced`). It is not in `sf_page_data.flags`, which is a different field.
+  - **When it is set:** on every CheckIn (so every publish), and when the zone editor's "discard draft" action finds the temp and master versions equal (`ZoneEditorService.DiscardPageDraft`). Both paths go through `PageManager.SetMasterSynced`.
+  - **When it is cleared:** on every `LifecycleDecoratorPages.GetMaster` call, which means every `EditPage` and every time the editor opens, and when `Edit` creates a new master.
+  - **What a clear bit means:** someone checked the page out and never checked it in. It does **not** mean the page has unpublished changes. Queries that used it to find pending work were overcounting pages that someone had only opened.
+  - **What to use instead:** a page has pending work when its master draft's `LanguageVersion` is higher than the live row's (`LifecycleExtensions.HasDraftNewerThanPublished`, the same check the Pages grid uses for "newer than published"). The edit lock is `sf_page_data.locked_by`. A temp draft on its own is not a lock.
+- **`sitefinity-page-surgery`: migration guidance now matches how checkout and discard actually work.**
+  - **`EditPage` always refreshes the temp draft.** When the page is unlocked, `EditPage` copies the master over the existing temp draft. The migration therefore starts from the master, never from whatever an earlier temp draft held.
+  - **Pending work and locks, as the backend Pages grid decides them.** "Newer than published" compares the master draft's `LanguageVersion` with live, and "locked" means `PageData.LockedBy` is set. A migration should use these two checks before overwriting a page, not draft timestamps and not the `Synced` bit.
+  - **`DeletePageTempDrafts` has limits.** It deletes only temp drafts whose version differs from live, because `DeleteTempAfterPublish` is false. It clears `LockedBy` when the caller holds the lock or has permission to unlock. It never touches the master draft, and it needs `SaveChanges` afterward. The "concurrent editor sessions" pitfall now includes this caveat.
+
+### Updating
+
+Run `npx skills update` (add `-g` if you installed the skills globally), or re-run `install-skills.ps1`. No new skills were added in this release, so `update` is enough.
+
 ## [3.8.0] — 2026-09-08
 
 ### Added
