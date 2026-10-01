@@ -88,7 +88,6 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                 AnalyzePermissions(secured, response);
 
-                response.IsAuthenticatedAccessible = response.IsAuthenticatedAccessible || response.IsPublic;
                 response.Summary = BuildSummary(response);
 
                 if (!string.IsNullOrWhiteSpace(request.Action) || !string.IsNullOrWhiteSpace(request.Principal))
@@ -178,10 +177,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 response.Warnings.Add("Could not load SecurityConfig: " + ex.Message);
             }
 
-            // Resolve the well-known special principals once for public/authenticated detection.
-            var anonymousId = TryReadRoleId(() => SecurityManager.AnonymousRole);
-            var authenticatedId = TryReadRoleId(() => SecurityManager.AuthenticatedRole);
-            var ownerId = TryReadRoleId(() => SecurityManager.OwnerRole);
+            // Resolve the built-in application roles once, by id. Everyone and Anonymous are distinct roles.
+            // SecurityManager.EveryoneRole is internal, so Everyone is read from the AppRoles config by name.
+            var roleIds = new McpSpecialRoleIds(
+                TryReadAppRoleId("Everyone"),
+                TryReadRoleId(() => SecurityManager.AnonymousRole),
+                TryReadRoleId(() => SecurityManager.AuthenticatedRole),
+                TryReadRoleId(() => SecurityManager.OwnerRole));
+
+            if (roleIds.Everyone == Guid.Empty)
+            {
+                response.Warnings.Add("Could not resolve the Everyone role id; public/authenticated visibility may be understated.");
+            }
+
+            var viewRows = new List<McpViewPermissionRow>();
 
             foreach (var group in active.GroupBy(p => p.SetName ?? string.Empty))
             {
@@ -197,23 +206,14 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
 
                 foreach (var perm in group)
                 {
-                    var access = BuildPrincipalAccess(perm, actions, setName, anonymousId, authenticatedId, ownerId);
+                    var access = BuildPrincipalAccess(perm, actions, setName, roleIds);
                     setView.Principals.Add(access);
                     response.Principals.Add(access);
 
-                    // Public / authenticated visibility — keyed off the special roles having an effective View.
-                    var viewEffective = access.EffectiveActions.Any(a => viewActionNames.Contains(a));
-                    if (viewEffective)
-                    {
-                        if (string.Equals(access.PrincipalName, "Everyone", StringComparison.OrdinalIgnoreCase))
-                        {
-                            response.IsPublic = true;
-                        }
-                        else if (string.Equals(access.PrincipalName, "Authenticated", StringComparison.OrdinalIgnoreCase))
-                        {
-                            response.IsAuthenticatedAccessible = true;
-                        }
-                    }
+                    // Visibility is decided per audience from the raw grant/deny rows, keyed on principal id.
+                    var grantsView = access.GrantedActions.Any(a => viewActionNames.Contains(a));
+                    var deniesView = access.DeniedActions.Any(a => viewActionNames.Contains(a));
+                    viewRows.Add(new McpViewPermissionRow(perm.PrincipalId, grantsView, deniesView));
                 }
 
                 setView.Principals = setView.Principals
@@ -221,6 +221,9 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                     .ToList();
                 response.Sets.Add(setView);
             }
+
+            response.IsPublic = McpPermissionVisibility.IsPublic(viewRows, roleIds);
+            response.IsAuthenticatedAccessible = McpPermissionVisibility.IsAuthenticatedAccessible(viewRows, roleIds);
         }
 
         /// <summary>
@@ -229,12 +232,11 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// flags administrative roles.
         /// </summary>
         private McpPrincipalAccess BuildPrincipalAccess(
-            ModelPermission perm, List<SecurityActionInfo> actions, string setName,
-            Guid anonymousId, Guid authenticatedId, Guid ownerId)
+            ModelPermission perm, List<SecurityActionInfo> actions, string setName, McpSpecialRoleIds roleIds)
         {
             var access = new McpPrincipalAccess { PermissionSet = setName };
 
-            ClassifyPrincipal(access, perm.PrincipalId, anonymousId, authenticatedId, ownerId);
+            ClassifyPrincipal(access, perm.PrincipalId, roleIds);
 
             foreach (var action in actions)
             {
@@ -271,7 +273,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             return access;
         }
 
-        private static void ClassifyPrincipal(McpPrincipalAccess access, Guid principalId, Guid anonymousId, Guid authenticatedId, Guid ownerId)
+        private static void ClassifyPrincipal(McpPrincipalAccess access, Guid principalId, McpSpecialRoleIds roleIds)
         {
             access.PrincipalId = principalId == Guid.Empty ? string.Empty : principalId.ToString();
 
@@ -281,25 +283,12 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             }
             catch (Exception) { /* best-effort */ }
 
-            // Well-known special roles first (their friendly names anchor the public/authenticated checks).
-            if (principalId != Guid.Empty && principalId == anonymousId)
+            // Built-in application roles are matched by id only. The name is a label, never a decision input.
+            var specialName = McpPermissionVisibility.SpecialRoleName(principalId, roleIds);
+            if (specialName != null)
             {
                 access.PrincipalType = "SpecialRole";
-                access.PrincipalName = "Everyone";
-                return;
-            }
-
-            if (principalId != Guid.Empty && principalId == authenticatedId)
-            {
-                access.PrincipalType = "SpecialRole";
-                access.PrincipalName = "Authenticated";
-                return;
-            }
-
-            if (principalId != Guid.Empty && principalId == ownerId)
-            {
-                access.PrincipalType = "SpecialRole";
-                access.PrincipalName = "Owner";
+                access.PrincipalName = specialName;
                 return;
             }
 
@@ -314,25 +303,34 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
                 ? name
                 : (principalId == Guid.Empty ? "(none)" : principalId.ToString());
 
+            // Users first. SecurityManager.IsPrincipalRole cannot be trusted: on 15.4
+            // RoleManager.RoleExistsInAnyProvider(Guid) returns true for ANY id (its final app-role
+            // check discards its result), so a user id would be reported as a Role.
+            access.PrincipalType = "Unknown";
+
+            if (principalId == Guid.Empty)
+            {
+                return;
+            }
+
             try
             {
-                if (SecurityManager.IsPrincipalRole(principalId))
+                if (SecurityManager.IsPrincipalUser(principalId))
+                {
+                    access.PrincipalType = "User";
+                    return;
+                }
+            }
+            catch (Exception) { /* fall through to the role lookup */ }
+
+            try
+            {
+                if (SecurityManager.GetRoleOrAppRole(principalId) != null)
                 {
                     access.PrincipalType = "Role";
                 }
-                else if (SecurityManager.IsPrincipalUser(principalId))
-                {
-                    access.PrincipalType = "User";
-                }
-                else
-                {
-                    access.PrincipalType = "Unknown";
-                }
             }
-            catch (Exception)
-            {
-                access.PrincipalType = "Unknown";
-            }
+            catch (Exception) { /* stays Unknown */ }
         }
 
         /// <summary>
@@ -469,17 +467,22 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         {
             var parts = new List<string>();
 
-            if (response.IsPublic)
+            // Mirrors the two audience flags exactly; they are independent, so all four combinations occur.
+            if (response.IsPublic && response.IsAuthenticatedAccessible)
             {
-                parts.Add("Publicly viewable (Everyone)");
+                parts.Add("Publicly viewable (anonymous visitors and signed-in users)");
+            }
+            else if (response.IsPublic)
+            {
+                parts.Add("Viewable by anonymous visitors only; signed-in users cannot view it");
             }
             else if (response.IsAuthenticatedAccessible)
             {
-                parts.Add("Viewable by any authenticated user");
+                parts.Add("Not public; any signed-in user can view it");
             }
             else
             {
-                parts.Add("Restricted (not public)");
+                parts.Add("Restricted: neither anonymous visitors nor all signed-in users can view it");
             }
 
             if (response.InheritsPermissions)
@@ -641,6 +644,20 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
             try
             {
                 var role = getter();
+                return role != null ? role.Id : Guid.Empty;
+            }
+            catch (Exception)
+            {
+                return Guid.Empty;
+            }
+        }
+
+        private static Guid TryReadAppRoleId(string roleName)
+        {
+            try
+            {
+                var role = SecurityManager.ApplicationRoles.Values
+                    .FirstOrDefault(r => string.Equals(r.Name, roleName, StringComparison.OrdinalIgnoreCase));
                 return role != null ? role.Id : Guid.Empty;
             }
             catch (Exception)

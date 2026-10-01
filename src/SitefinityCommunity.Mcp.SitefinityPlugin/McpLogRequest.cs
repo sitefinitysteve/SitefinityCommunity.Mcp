@@ -846,7 +846,7 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         public string PrincipalId { get; set; }
         public string PrincipalName { get; set; }
 
-        /// <summary>"Role", "User", "SpecialRole" (Everyone / Authenticated / Owner), or "Unknown".</summary>
+        /// <summary>"Role", "User", "SpecialRole" (Everyone / Anonymous / Authenticated / Owner), or "Unknown".</summary>
         public string PrincipalType { get; set; }
 
         /// <summary>True for an administrative role — implicitly has full control regardless of grants.</summary>
@@ -896,10 +896,10 @@ namespace SitefinityCommunity.Mcp.SitefinityPlugin
         /// <summary>For pages: the parent the object inherits permissions from, when inheriting.</summary>
         public string InheritedFrom { get; set; }
 
-        /// <summary>True when the Everyone (anonymous) role can effectively View the object.</summary>
+        /// <summary>True when an anonymous visitor can View the object: Everyone or Anonymous grants View and neither denies it.</summary>
         public bool IsPublic { get; set; }
 
-        /// <summary>True when any authenticated user can effectively View the object.</summary>
+        /// <summary>True when any signed-in user can View the object: Everyone or Authenticated grants View and neither denies it.</summary>
         public bool IsAuthenticatedAccessible { get; set; }
 
         public List<string> SupportedPermissionSets { get; set; } = new List<string>();

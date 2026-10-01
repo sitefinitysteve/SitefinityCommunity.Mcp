@@ -25,7 +25,8 @@ public sealed class PermissionTools
     [Description("Inspect the effective permissions on a page or content item. Decodes each principal's " +
                  "granted/denied actions (View, Modify, Delete, Create, ChangePermissions, …) into EFFECTIVE " +
                  "access (deny wins over grant) across each permission set, flags whether the object is public " +
-                 "(the Everyone role can View), whether any authenticated user can view it, and whether it " +
+                 "(an anonymous visitor can View: Everyone/Anonymous grant it and neither denies it), whether any " +
+                 "signed-in user can view it (Everyone/Authenticated, same rule), and whether it " +
                  "inherits permissions (and from which parent). Pass a page identifier (Guid, URL, or title) for " +
                  "a page; for a content item pass its Guid and the content type's full name via typeFullName. " +
                  "Use to answer \"is this page public?\" or \"why can't this role see/edit this?\".")]

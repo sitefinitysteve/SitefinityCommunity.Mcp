@@ -46,6 +46,7 @@ SitefinityWebApp/
 │           ├── McpConfigService.cs
 │           ├── McpWhereUsedService.cs
 │           ├── McpPermissionsService.cs
+│           ├── McpPermissionVisibility.cs
 │           ├── McpSystemLogService.cs
 │           ├── McpTasksService.cs
 │           └── McpMaintenanceService.cs

@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Plugin source with no Sitefinity dependencies, compiled in so its rules are unit-testable. -->
+    <Compile Include="..\..\src\SitefinityCommunity.Mcp.SitefinityPlugin\McpPermissionVisibility.cs" Link="Plugin\McpPermissionVisibility.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\SitefinityCommunity.Mcp\SitefinityCommunity.Mcp.csproj" />
   </ItemGroup>
 

@@ -127,6 +127,7 @@ SitefinityCommunity.Mcp/
         ├── McpConfigService.cs        ← ServiceStack service handlers (config section reader; redacted)
         ├── McpWhereUsedService.cs     ← ServiceStack service handler (reverse lookup)
         ├── McpPermissionsService.cs   ← ServiceStack service handler (effective permissions)
+        ├── McpPermissionVisibility.cs ← Pure audience-visibility rules (no Sitefinity refs; linked into the test project)
         ├── McpSystemLogService.cs     ← ServiceStack service handler (incident window / candidate discovery / cross-source search: SF + IIS + Event Log + HTTPERR)
         ├── McpTasksService.cs         ← ServiceStack service handlers (scheduler status: running + failed tasks; search index inventory)
         ├── McpMaintenanceService.cs   ← ServiceStack service handlers (clear cache / recycle; WRITE, gated)

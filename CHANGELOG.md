@@ -2,6 +2,25 @@
 
 All notable changes to **SitefinityCommunity.Mcp** are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.8.2] — 2026-09-30
+
+Plugin fix release. **Update the plugin** (`install-plugin.ps1`, rebuild, recycle) — the fixes are in the plugin sources, and this release adds one new plugin file (`McpPermissionVisibility.cs`), so use `install-plugin.ps1` rather than copying files by hand so it gets registered in the `.csproj`.
+
+### Fixed
+
+`sitefinity_get_permissions` could report a page as public when anonymous visitors were actually blocked. Three related bugs:
+
+- **The Anonymous role was labelled "Everyone".** The built-in Anonymous role's id was mapped to the name `Everyone`, so a page with an Everyone grant and an Anonymous deny showed two "Everyone" principals, one granting View and one denying it. Everyone, Anonymous, Authenticated and Owner are distinct application roles with distinct ids, and each is now classified by its own id (Everyone is resolved from the AppRoles configuration, since `SecurityManager.EveryoneRole` is internal).
+- **`isPublic` ignored denies held by other roles.** It was set when any row whose *display name* was "Everyone" had an effective View, so an Anonymous deny never counted. Visibility is now computed per audience by principal id, deny-wins across every role the audience belongs to:
+  - `isPublic` (an anonymous visitor): Everyone or Anonymous grants View, and neither denies it.
+  - `isAuthenticatedAccessible` (any signed-in user): Everyone or Authenticated grants View, and neither denies it. The old "public implies authenticated-accessible" shortcut is gone: an Anonymous-only grant does not reach signed-in users, and an Authenticated deny is no longer cancelled by the page being public.
+  - The summary line now states the same thing as the two flags, including "Not public; any signed-in user can view it" and "Viewable by anonymous visitors only".
+- **Users were reported as `principalType: "Role"`.** On Sitefinity 15.4, `SecurityManager.IsPrincipalRole` returns true for *any* id (`RoleManager.RoleExistsInAnyProvider(Guid)` discards the result of its final app-role check and returns true). Principals are now checked as users first (`IsPrincipalUser`), then as roles through `SecurityManager.GetRoleOrAppRole`, and fall back to `Unknown` — a user is never typed as a Role.
+
+### Added
+
+- Unit tests for the visibility rules. They live in the new dependency-free plugin file `McpPermissionVisibility.cs`, which the test project compiles in directly, so the rules are tested without a Sitefinity runtime.
+
 ## [3.8.1] — 2026-09-23
 
 Skills-only release. No MCP server or plugin behavior changes. Only the version number moved, so a plugin already on 3.8.0 does not need reinstalling.
